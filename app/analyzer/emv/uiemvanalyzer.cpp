@@ -16,6 +16,7 @@
 #include "uiemvanalyzer.h"
 
 #include <QPainter>
+#include <cmath>
 
 #include "uiemvanalyzerconfig.h"
 #include "common/configuration.h"
@@ -162,14 +163,18 @@ void UiEmvAnalyzer::analyze()
     mCurrentEtu = mInitialEtu;
     int minSampleRate = 1 + (1.f / (mInitialEtu * 0.2));
 
-    int pos = 0;
     bool done = false;
-    int startIdx = -1;
+    int pos = 0;
+    int startBitIdx = -1;
+    int bitRank = 0;
+
+    quint8 currByte = 0x00;
+    int currIo = ioData->at(pos);
 
     if (device->usedSampleRate() < minSampleRate)
     {
         done = true;
-        EmvItem item(EmvItem::TYPE_ERROR_RATE, 0, startIdx, -1);
+        EmvItem item(EmvItem::TYPE_ERROR_RATE, 0, startBitIdx, -1);
         mEmvItems.append(item);
     }
 
@@ -178,7 +183,54 @@ void UiEmvAnalyzer::analyze()
         // reached end of data
         if (pos >= ioData->size()) break;
 
-        // TODO actually implement analyzer logic
+        currIo = ioData->at(pos);
+
+        if (startBitIdx == -1)
+        {
+            if (currIo == 0)
+            {
+                startBitIdx = pos;
+                bitRank = 1;
+            }
+        }
+        else
+        {
+            int nextBitPos = round((startBitIdx * (1.0 / device->usedSampleRate()) + ((bitRank + 0.5) * mCurrentEtu)) * device->usedSampleRate());
+            int nextBitPosTolerance = round(0.2 * mCurrentEtu * device->usedSampleRate());
+            if (abs(pos - nextBitPos) <= nextBitPosTolerance)
+            {
+                if (bitRank >= 1 && bitRank <= 8)
+                {
+                    // TODO support both endianness
+                    currByte = currByte | (currIo << (bitRank - 1));
+                    ++bitRank;
+                }
+                else if (bitRank == 9)
+                {
+                    int numSetBits = currIo;
+                    quint8 n = currByte;
+                    while (n)
+                    {
+                        n &= (n-1);
+                        ++numSetBits;
+                    }
+                    if (numSetBits % 2 == 0)
+                    {
+                        EmvItem item(EmvItem::TYPE_CHARACTER_FRAME, currByte, startBitIdx, pos);
+                        mEmvItems.append(item);
+                        startBitIdx = -1;
+                        bitRank = 0;
+                        currByte = 0x00;
+                    }
+                    else
+                    {
+                        done = true;
+                        EmvItem item(EmvItem::TYPE_ERROR_PARITY, 0, startBitIdx, -1);
+                        mEmvItems.append(item);
+                    }
+                }
+            }
+        }
 
         pos++;
     }
@@ -467,6 +519,10 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
     case EmvItem::TYPE_ERROR_RATE:
         shortTxt = "ERR";
         longTxt = "Too low sample rate";
+        break;
+    case EmvItem::TYPE_ERROR_PARITY:
+        shortTxt = "ERR";
+        longTxt = "Bad parity bit";
         break;
     }
 

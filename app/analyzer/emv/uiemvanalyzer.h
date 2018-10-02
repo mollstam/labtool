@@ -38,7 +38,8 @@ public:
     */
     enum ItemType {
         TYPE_CHARACTER_FRAME,
-        TYPE_ERROR_RATE
+        TYPE_ERROR_RATE,
+        TYPE_ERROR_PARITY,
     };
 
     // default constructor needed in order to add this to QVector
