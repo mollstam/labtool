@@ -160,11 +160,18 @@ void UiEmvAnalyzer::analyze()
     if (mClkFreq == -1) return;
     mInitialEtu = 372.f / mClkFreq;
     mCurrentEtu = mInitialEtu;
+    int minSampleRate = 1 + (1.f / (mInitialEtu * 0.2));
 
-    bool done = false;
     int pos = 0;
-
+    bool done = false;
     int startIdx = -1;
+
+    if (device->usedSampleRate() < minSampleRate)
+    {
+        done = true;
+        EmvItem item(EmvItem::TYPE_ERROR_RATE, 0, startIdx, -1);
+        mEmvItems.append(item);
+    }
 
     while (!done) {
 
@@ -456,6 +463,10 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
     case EmvItem::TYPE_CHARACTER_FRAME:
         shortTxt = formatValue(mFormat, value);
         longTxt = formatValue(mFormat, value);
+        break;
+    case EmvItem::TYPE_ERROR_RATE:
+        shortTxt = "ERR";
+        longTxt = "Too low sample rate";
         break;
     }
 

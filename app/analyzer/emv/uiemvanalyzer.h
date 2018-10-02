@@ -37,7 +37,8 @@ public:
         EMV item type
     */
     enum ItemType {
-        TYPE_CHARACTER_FRAME
+        TYPE_CHARACTER_FRAME,
+        TYPE_ERROR_RATE
     };
 
     // default constructor needed in order to add this to QVector
