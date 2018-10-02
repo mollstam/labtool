@@ -17,6 +17,7 @@
 #include "i2c/uii2canalyzer.h"
 #include "uart/uiuartanalyzer.h"
 #include "spi/uispianalyzer.h"
+#include "emv/uiemvanalyzer.h"
 
 /*!
     \class AnalyzerManager
@@ -37,7 +38,8 @@ QList<QString> AnalyzerManager::analyzers()
     return QList<QString>()
             << UiI2CAnalyzer::signalName
             << UiUartAnalyzer::name
-            << UiSpiAnalyzer::signalName;
+            << UiSpiAnalyzer::signalName
+            << UiEmvAnalyzer::signalName;
 }
 
 /*!
@@ -59,6 +61,11 @@ UiAnalyzer* AnalyzerManager::createAnalyzer(const QString name)
     else if (name == UiSpiAnalyzer::signalName) {
         // Deallocation: caller is responsible for deallocation
         analyzer = new UiSpiAnalyzer();
+    }
+
+    else if (name == UiEmvAnalyzer::signalName) {
+        // Deallocation: caller is responsible for deallocation
+        analyzer = new UiEmvAnalyzer();
     }
 
     return analyzer;
@@ -97,6 +104,9 @@ UiAnalyzer* AnalyzerManager::analyzerFromString(const QString &s)
     }
     else if (type == UiSpiAnalyzer::signalName) {
         analyzer = UiSpiAnalyzer::fromSettingsString(s);
+    }
+    else if (type == UiEmvAnalyzer::signalName) {
+        analyzer = UiEmvAnalyzer::fromSettingsString(s);
     }
 
     return analyzer;

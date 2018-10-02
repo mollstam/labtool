@@ -357,3 +357,19 @@ QComboBox* InputHelper::createSpiEnableModeBox(QWidget* parent, Types::SpiEnable
 
     return box;
 }
+
+/*!
+    Create an input box for specifying EMV CLK frequency.
+*/
+QLineEdit* InputHelper::createEmvClkFreqBox(QWidget* parent, int selectedFreq)
+{
+    // Deallocation: "Qt Object trees" (See UiMainWindow)
+    QLineEdit* box = new QLineEdit(parent);
+    box->setText(QString("%1").arg(selectedFreq));
+
+    // Deallocation: "Qt Object trees" (See UiMainWindow)
+    QIntValidator* intValidator = new QIntValidator(1, 10000000, box);
+    box->setValidator(intValidator);
+
+    return box;
+}
