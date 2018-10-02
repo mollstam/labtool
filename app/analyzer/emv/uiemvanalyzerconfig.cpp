@@ -51,7 +51,7 @@ UiEmvAnalyzerConfig::UiEmvAnalyzerConfig(QWidget *parent) :
     formLayout->addRow(tr("RST: "), mEmvRstSignalBox);
 
     mEmvClkFreqBox = InputHelper::createEmvClkFreqBox(this, 1);
-    formLayout->addRow(tr("CLK: "), mEmvClkFreqBox);
+    formLayout->addRow(tr("Clock frequency (Hz): "), mEmvClkFreqBox);
 
     mFormatBox = InputHelper::createFormatBox(this, Types::DataFormatHex);
     formLayout->addRow(tr("Data format: "), mFormatBox);
