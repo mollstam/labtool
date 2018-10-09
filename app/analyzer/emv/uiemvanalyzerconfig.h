@@ -37,6 +37,9 @@ public:
     void setClkFreq(int freq);
     int clkFreq();
 
+    void setLogicConvention(Types::EmvLogicConvention convention);
+    Types::EmvLogicConvention logicConvention();
+
     Types::DataFormat dataFormat();
     void setDataFormat(Types::DataFormat format);
 
@@ -52,6 +55,7 @@ private:
     QComboBox* mEmvIoSignalBox;
     QComboBox* mEmvRstSignalBox;
     QLineEdit* mEmvClkFreqBox;
+    QComboBox* mEmvLogicConventionBox;
     QComboBox* mFormatBox;
 
 };

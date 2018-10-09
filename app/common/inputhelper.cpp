@@ -373,3 +373,27 @@ QLineEdit* InputHelper::createEmvClkFreqBox(QWidget* parent, int selectedFreq)
 
     return box;
 }
+
+/*!
+    Create an input box for specifying EMV logic convention.
+*/
+QComboBox* InputHelper::createEmvLogicConventionBox(QWidget* parent, Types::EmvLogicConvention convention)
+{
+    // Deallocation: "Qt Object trees" (See UiMainWindow)
+    QComboBox* box = new QComboBox(parent);
+
+    box->addItem("Auto (from ATR)", QVariant(Types::EmvLogicConvention_Auto));
+    box->addItem("Inverse convention", QVariant(Types::EmvLogicConvention_InverseConvention));
+    box->addItem("Direct convention", QVariant(Types::EmvLogicConvention_DirectConvention));
+
+
+    for (int i = 0; i < box->count(); i++) {
+
+        if (box->itemData(i).toInt() == convention) {
+            box->setCurrentIndex(i);
+        }
+    }
+
+
+    return box;
+}

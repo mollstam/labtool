@@ -49,7 +49,8 @@ public:
     static QComboBox* createSpiEnableModeBox(QWidget* parent, Types::SpiEnable mode);
 
     static QLineEdit* createEmvClkFreqBox(QWidget* parent, int selectedFreq);
-    
+    static QComboBox* createEmvLogicConventionBox(QWidget* parent, Types::EmvLogicConvention convention);
+
 private:
     explicit InputHelper();
     

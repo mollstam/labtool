@@ -40,6 +40,7 @@ public:
         TYPE_CHARACTER_FRAME,
         TYPE_ERROR_RATE,
         TYPE_ERROR_PARITY,
+        TYPE_ERROR_TS,
     };
 
     // default constructor needed in order to add this to QVector
@@ -83,6 +84,9 @@ public:
     void setClkFreq(int freq);
     int clkFreq() const {return mClkFreq;}
 
+    void setLogicConvention(Types::EmvLogicConvention convention) { mLogicConvention = convention; }
+    Types::EmvLogicConvention logicConvention() const {return mLogicConvention;}
+
     void setDataFormat(Types::DataFormat format) {mFormat = format;}
     Types::DataFormat dataFormat() const {return mFormat;}
 
@@ -110,6 +114,7 @@ private:
     int mIoSignalId;
     int mRstSignalId;
     int mClkFreq;
+    Types::EmvLogicConvention mLogicConvention;
     double mInitialEtu;
     double mCurrentEtu;
 

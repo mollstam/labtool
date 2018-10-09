@@ -68,6 +68,17 @@ public:
         SpiEnableNum // must be last
     };
 
+    /*
+     * E M V ##############################
+     */
+
+    enum EmvLogicConvention {
+        EmvLogicConvention_Auto, // determine from ATR
+        EmvLogicConvention_InverseConvention, //L=logic one, MSB first
+        EmvLogicConvention_DirectConvention, //H=logic one, LSB first
+        EmvLogicConvention_Num // must be last
+    };
+
     Types();
 };
 

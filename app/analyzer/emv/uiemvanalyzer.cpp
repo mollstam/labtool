@@ -58,6 +58,7 @@ UiEmvAnalyzer::UiEmvAnalyzer(QWidget *parent) :
     mClkFreq = -1;
     mInitialEtu = 0;
     mCurrentEtu = mInitialEtu;
+    mLogicConvention = Types::EmvLogicConvention_Auto;
     mFormat = Types::DataFormatHex;
 
     mIdLbl->setText("EMV");
@@ -120,11 +121,22 @@ void UiEmvAnalyzer::setClkFreq(int freq)
     mClkLbl->setText(QString("CLK: %1").arg(StringUtil::frequencyToString((double)freq)));
 }
 
-
 /*!
     \fn int UiEmvAnalyzer::clkFreq() const
 
     Returns CLK frequency
+*/
+
+/*!
+    \fn void UiEmvAnalyzer::setLogicConvention(Types::EmvLogicConvention convention)
+
+    Set the logic convention to \a convention.
+*/
+
+/*!
+    \fn Types::EmvLogicConvention UiEmvAnalyzer::logicConvention() const
+
+    Returns the logic convention.
 */
 
 /*!
@@ -201,8 +213,15 @@ void UiEmvAnalyzer::analyze()
             {
                 if (bitRank >= 1 && bitRank <= 8)
                 {
-                    // TODO support both endianness
-                    currByte = currByte | (currIo << (bitRank - 1));
+                    if (mLogicConvention == Types::EmvLogicConvention_InverseConvention)
+                    {
+                        int bitToWrite = currIo == 0 ? 1 : 0; // low = logic one
+                        currByte = currByte | (bitToWrite << (8 - bitRank)); // msb first
+                    }
+                    else // treat "auto" as direct convention until determined
+                    {
+                        currByte = currByte | (currIo << (bitRank - 1)); // lsb first
+                    }
                     ++bitRank;
                 }
                 else if (bitRank == 9)
@@ -216,11 +235,33 @@ void UiEmvAnalyzer::analyze()
                     }
                     if (numSetBits % 2 == 0)
                     {
-                        EmvItem item(EmvItem::TYPE_CHARACTER_FRAME, currByte, startBitIdx, pos);
-                        mEmvItems.append(item);
-                        startBitIdx = -1;
-                        bitRank = 0;
-                        currByte = 0x00;
+                        if (mLogicConvention == Types::EmvLogicConvention_Auto)
+                        {
+                            if (currByte == 0x3) // 0x3f (inverse indicator) has value 0x3 if read as direct
+                            {
+                                currByte = 0x3f;
+                                mLogicConvention = Types::EmvLogicConvention_InverseConvention;
+                            }
+                            else if (currByte == 0x3b)
+                            {
+                                mLogicConvention = Types::EmvLogicConvention_DirectConvention;
+                            }
+                            else
+                            {
+                                done = true;
+                                EmvItem item(EmvItem::TYPE_ERROR_TS, 0, startBitIdx, -1);
+                                mEmvItems.append(item);
+                            }
+                        }
+
+                        if (!done)
+                        {
+                            EmvItem item(EmvItem::TYPE_CHARACTER_FRAME, currByte, startBitIdx, pos);
+                            mEmvItems.append(item);
+                            startBitIdx = -1;
+                            bitRank = 0;
+                            currByte = 0x00;
+                        }
                     }
                     else
                     {
@@ -246,6 +287,7 @@ void UiEmvAnalyzer::configure(QWidget *parent)
     dialog.setIoSignal(mIoSignalId);
     dialog.setRstSignal(mRstSignalId);
     dialog.setClkFreq(mClkFreq);
+    dialog.setLogicConvention(mLogicConvention);
     dialog.setDataFormat(mFormat);
 
     dialog.exec();
@@ -253,6 +295,7 @@ void UiEmvAnalyzer::configure(QWidget *parent)
     setIoSignal(dialog.ioSignal());
     setRstSignal(dialog.rstSignal());
     setClkFreq(dialog.clkFreq());
+    setLogicConvention(dialog.logicConvention());
     setDataFormat(dialog.dataFormat());
 
     analyze();
@@ -264,7 +307,7 @@ void UiEmvAnalyzer::configure(QWidget *parent)
 */
 QString UiEmvAnalyzer::toSettingsString() const
 {
-    // type;name;IO;RST;CLK;Format
+    // type;name;IO;RST;CLKFreq;LogicConvention;Format
 
     QString str;
     str.append(UiEmvAnalyzer::signalName);str.append(";");
@@ -272,6 +315,7 @@ QString UiEmvAnalyzer::toSettingsString() const
     str.append(QString("%1;").arg(ioSignal()));
     str.append(QString("%1;").arg(rstSignal()));
     str.append(QString("%1;").arg(clkFreq()));
+    str.append(QString("%1;").arg(logicConvention()));
     str.append(QString("%1;").arg(dataFormat()));
 
     return str;
@@ -290,7 +334,7 @@ UiEmvAnalyzer* UiEmvAnalyzer::fromSettingsString(const QString &s)
     bool ok = false;
 
     do {
-        // type;name;IO;RST;CLK;Format
+        // type;name;IO;RST;CLKFreq;LogicConvention;Format
         QStringList list = s.split(';');
         if (list.size() != 6) break;
 
@@ -309,13 +353,19 @@ UiEmvAnalyzer* UiEmvAnalyzer::fromSettingsString(const QString &s)
         int rstId = list.at(3).toInt(&ok);
         if (!ok) break;
 
-        // --- CLK signal ID
+        // --- CLK freq
         int clkFreq = list.at(4).toInt(&ok);
         if (!ok) break;
 
+        // --- logic convention
+        int lc = list.at(5).toInt(&ok);
+        if (!ok) break;
+        if (lc < 0 || lc >= Types::EmvLogicConvention_Num) break;
+        Types::EmvLogicConvention logicConvention = (Types::EmvLogicConvention)lc;
+
         // --- data format
         Types::DataFormat format;
-        int f = list.at(5).toInt(&ok);
+        int f = list.at(6).toInt(&ok);
         if (!ok) break;
         if (f < 0 || f >= Types::DataFormatNum) break;
         format = (Types::DataFormat)f;
@@ -328,6 +378,7 @@ UiEmvAnalyzer* UiEmvAnalyzer::fromSettingsString(const QString &s)
         analyzer->setIoSignal(ioId);
         analyzer->setRstSignal(rstId);
         analyzer->setClkFreq(clkFreq);
+        analyzer->setLogicConvention(logicConvention);
         analyzer->setDataFormat(format);
 
     } while (false);
@@ -523,6 +574,10 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
     case EmvItem::TYPE_ERROR_PARITY:
         shortTxt = "ERR";
         longTxt = "Bad parity bit";
+        break;
+    case EmvItem::TYPE_ERROR_TS:
+        shortTxt = "ERR";
+        longTxt = "Bad initial character, unknown logic convention";
         break;
     }
 

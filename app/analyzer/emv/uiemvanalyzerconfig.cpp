@@ -56,6 +56,9 @@ UiEmvAnalyzerConfig::UiEmvAnalyzerConfig(QWidget *parent) :
     mFormatBox = InputHelper::createFormatBox(this, Types::DataFormatHex);
     formLayout->addRow(tr("Data format: "), mFormatBox);
 
+    mEmvLogicConventionBox = InputHelper::createEmvLogicConventionBox(this, Types::EmvLogicConvention_Auto);
+    formLayout->addRow(tr("Logic convention: "), mEmvLogicConventionBox);
+
     // Deallocation: Ownership changed when calling setLayout
     QVBoxLayout* verticalLayout = new QVBoxLayout();
 
@@ -121,6 +124,23 @@ void UiEmvAnalyzerConfig::setClkFreq(int freq)
 int UiEmvAnalyzerConfig::clkFreq()
 {
     return InputHelper::intValue(mEmvClkFreqBox);
+}
+
+/*!
+    Set the logic convention.
+*/
+void UiEmvAnalyzerConfig::setLogicConvention(Types::EmvLogicConvention convention)
+{
+    InputHelper::setInt(mEmvLogicConventionBox, (int)convention);
+}
+
+/*!
+    Returns the logic convention.
+*/
+Types::EmvLogicConvention UiEmvAnalyzerConfig::logicConvention()
+{
+    int f = InputHelper::intValue(mEmvLogicConventionBox);
+    return (Types::EmvLogicConvention)f;
 }
 
 /*!
