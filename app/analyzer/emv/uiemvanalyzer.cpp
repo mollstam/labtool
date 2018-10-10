@@ -194,80 +194,85 @@ void UiEmvAnalyzer::analyze()
 
         // reached end of data
         if (pos >= ioData->size()) break;
+        if (pos >= rstData->size()) break;
 
-        currIo = ioData->at(pos);
+        if (rstData->at(pos) == 1)
+        {
 
-        if (startBitIdx == -1)
-        {
-            if (currIo == 0)
+            currIo = ioData->at(pos);
+
+            if (startBitIdx == -1)
             {
-                startBitIdx = pos;
-                bitRank = 1;
-            }
-        }
-        else
-        {
-            int nextBitPos = round((startBitIdx * (1.0 / device->usedSampleRate()) + ((bitRank + 0.5) * mCurrentEtu)) * device->usedSampleRate());
-            int nextBitPosTolerance = round(0.2 * mCurrentEtu * device->usedSampleRate());
-            if (abs(pos - nextBitPos) <= nextBitPosTolerance)
-            {
-                if (bitRank >= 1 && bitRank <= 8)
+                if (currIo == 0)
                 {
-                    if (mLogicConvention == Types::EmvLogicConvention_InverseConvention)
-                    {
-                        int bitToWrite = currIo == 0 ? 1 : 0; // low = logic one
-                        currByte = currByte | (bitToWrite << (8 - bitRank)); // msb first
-                    }
-                    else // treat "auto" as direct convention until determined
-                    {
-                        currByte = currByte | (currIo << (bitRank - 1)); // lsb first
-                    }
-                    ++bitRank;
+                    startBitIdx = pos;
+                    bitRank = 1;
                 }
-                else if (bitRank == 9)
+            }
+            else
+            {
+                int nextBitPos = round((startBitIdx * (1.0 / device->usedSampleRate()) + ((bitRank + 0.5) * mCurrentEtu)) * device->usedSampleRate());
+                int nextBitPosTolerance = round(0.2 * mCurrentEtu * device->usedSampleRate());
+                if (abs(pos - nextBitPos) <= nextBitPosTolerance)
                 {
-                    int numSetBits = currIo;
-                    quint8 n = currByte;
-                    while (n)
+                    if (bitRank >= 1 && bitRank <= 8)
                     {
-                        n &= (n-1);
-                        ++numSetBits;
-                    }
-                    if (numSetBits % 2 == 0)
-                    {
-                        if (mLogicConvention == Types::EmvLogicConvention_Auto)
+                        if (mLogicConvention == Types::EmvLogicConvention_InverseConvention)
                         {
-                            if (currByte == 0x3) // 0x3f (inverse indicator) has value 0x3 if read as direct
-                            {
-                                currByte = 0x3f;
-                                mLogicConvention = Types::EmvLogicConvention_InverseConvention;
-                            }
-                            else if (currByte == 0x3b)
-                            {
-                                mLogicConvention = Types::EmvLogicConvention_DirectConvention;
-                            }
-                            else
-                            {
-                                done = true;
-                                EmvItem item(EmvItem::TYPE_ERROR_TS, 0, startBitIdx, -1);
-                                mEmvItems.append(item);
-                            }
+                            int bitToWrite = currIo == 0 ? 1 : 0; // low = logic one
+                            currByte = currByte | (bitToWrite << (8 - bitRank)); // msb first
                         }
+                        else // treat "auto" as direct convention until determined
+                        {
+                            currByte = currByte | (currIo << (bitRank - 1)); // lsb first
+                        }
+                        ++bitRank;
+                    }
+                    else if (bitRank == 9)
+                    {
+                        int numSetBits = currIo;
+                        quint8 n = currByte;
+                        while (n)
+                        {
+                            n &= (n-1);
+                            ++numSetBits;
+                        }
+                        if (numSetBits % 2 == 0)
+                        {
+                            if (mLogicConvention == Types::EmvLogicConvention_Auto)
+                            {
+                                if (currByte == 0x3) // 0x3f (inverse indicator) has value 0x3 if read as direct
+                                {
+                                    currByte = 0x3f;
+                                    mLogicConvention = Types::EmvLogicConvention_InverseConvention;
+                                }
+                                else if (currByte == 0x3b)
+                                {
+                                    mLogicConvention = Types::EmvLogicConvention_DirectConvention;
+                                }
+                                else
+                                {
+                                    done = true;
+                                    EmvItem item(EmvItem::TYPE_ERROR_TS, 0, startBitIdx, -1);
+                                    mEmvItems.append(item);
+                                }
+                            }
 
-                        if (!done)
-                        {
-                            EmvItem item(EmvItem::TYPE_CHARACTER_FRAME, currByte, startBitIdx, pos);
-                            mEmvItems.append(item);
-                            startBitIdx = -1;
-                            bitRank = 0;
-                            currByte = 0x00;
+                            if (!done)
+                            {
+                                EmvItem item(EmvItem::TYPE_CHARACTER_FRAME, currByte, startBitIdx, pos);
+                                mEmvItems.append(item);
+                                startBitIdx = -1;
+                                bitRank = 0;
+                                currByte = 0x00;
+                            }
                         }
-                    }
-                    else
-                    {
-                        done = true;
-                        EmvItem item(EmvItem::TYPE_ERROR_PARITY, 0, startBitIdx, -1);
-                        mEmvItems.append(item);
+                        else
+                        {
+                            done = true;
+                            EmvItem item(EmvItem::TYPE_ERROR_PARITY, 0, startBitIdx, -1);
+                            mEmvItems.append(item);
+                        }
                     }
                 }
             }
