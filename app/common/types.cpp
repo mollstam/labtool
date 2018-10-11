@@ -109,6 +109,24 @@
 */
 
 
+/*!
+    \enum Types::EmvLogicConvention
+
+    This enum describes different EMV logic conventions.
+
+    \var Types::EmvLogicConvention Types::EmvLogicConvention_Auto
+    Determine automatically. Expects IO capture to start with ATR TS
+
+    \var Types::EmvLogicConvention Types::EmvLogicConvention_InverseConvention
+    Inverse convention where low level (0) is logic one. MSB first.
+
+    \var Types::EmvLogicConvention Types::EmvLogicConvention_DirectConvention
+    Direct convention where high level (1) is logic one. LSB first.
+
+
+*/
+
+
 
 /*!
     Constructs the Types.
