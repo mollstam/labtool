@@ -32,6 +32,8 @@ namespace
         STATE_ATR_TB1,
         STATE_ATR_TC1,
 
+        STATE_RAW_BYTES,
+
         STATE_DONE,
     };
 
@@ -388,7 +390,7 @@ void UiEmvAnalyzer::analyze()
                             else if (state == STATE_ATR_TC1)
                             {
                                 extraTermToICCGuardTime = currByte;
-                                state = STATE_DONE; // TODO implement further
+                                state = STATE_RAW_BYTES; // TODO implement further
                             }
 
                             if (error == false)
@@ -397,7 +399,7 @@ void UiEmvAnalyzer::analyze()
                                              currByte,
                                              stateLabel(stateForByte),
                                              startBitIdx,
-                                             pos);
+                                             pos + (mCurrentEtu * device->usedSampleRate()));
                                 mEmvItems.append(item);
                                 startBitIdx = -1;
                                 bitRank = 0;
