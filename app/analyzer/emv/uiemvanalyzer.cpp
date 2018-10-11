@@ -34,6 +34,23 @@ namespace
 
         STATE_DONE,
     };
+
+    QString stateLabel(AnalyzerState state)
+    {
+        switch (state)
+        {
+        case STATE_ATR_TS:
+            return "TS";
+        case STATE_ATR_T0:
+            return "T0";
+        case STATE_ATR_TB1:
+            return "TB1";
+        case STATE_ATR_TC1:
+            return "TC1";
+        default:
+            return "";
+        }
+    }
 }
 
 /*!
@@ -227,7 +244,7 @@ void UiEmvAnalyzer::analyze()
     if (determinedProtocol == Types::EmvProtocol_T1)
     {
         // T=1 not currently supported
-        EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, 0, -1);
+        EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, "", 0, -1);
         mEmvItems.append(item);
         state = STATE_DONE;
     }
@@ -243,7 +260,7 @@ void UiEmvAnalyzer::analyze()
     if (device->usedSampleRate() < minSampleRate)
     {
         state = STATE_DONE;
-        EmvItem item(EmvItem::TYPE_ERROR_RATE, 0, startBitIdx, -1);
+        EmvItem item(EmvItem::TYPE_ERROR_RATE, 0, "", startBitIdx, -1);
         mEmvItems.append(item);
     }
 
@@ -298,6 +315,9 @@ void UiEmvAnalyzer::analyze()
                         {
                             // a valid byte has been read
 
+                            AnalyzerState stateForByte = state;
+                            bool error = false;
+
                             if (state == STATE_ATR_TS)
                             {
                                 if (currByte == 0x3) // 0x3f (inverse indicator) has value 0x3 if read as direct
@@ -313,9 +333,10 @@ void UiEmvAnalyzer::analyze()
                                 }
                                 else
                                 {
-                                    EmvItem item(EmvItem::TYPE_ERROR_TS, 0, startBitIdx, -1);
+                                    EmvItem item(EmvItem::TYPE_ERROR_TS, 0, "", startBitIdx, -1);
                                     mEmvItems.append(item);
                                     state = STATE_DONE;
+                                    error = true;
                                 }
                             }
                             else if (state == STATE_ATR_T0)
@@ -330,15 +351,17 @@ void UiEmvAnalyzer::analyze()
                                 else if ((currByte >> 4) == 0xe)
                                 {
                                     // T=1 not currently supported
-                                    EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, startBitIdx, -1);
+                                    EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, "", startBitIdx, -1);
                                     mEmvItems.append(item);
                                     state = STATE_DONE;
+                                    error = true;
                                 }
                                 else
                                 {
-                                    EmvItem item(EmvItem::TYPE_ERROR_T0, currByte, startBitIdx, -1);
+                                    EmvItem item(EmvItem::TYPE_ERROR_T0, currByte, "", startBitIdx, -1);
                                     mEmvItems.append(item);
                                     state = STATE_DONE;
+                                    error = true;
                                 }
                             }
                             else if (state == STATE_ATR_TB1)
@@ -356,9 +379,10 @@ void UiEmvAnalyzer::analyze()
                                 }
                                 else
                                 {
-                                    EmvItem item(EmvItem::TYPE_ERROR_TB1, currByte, startBitIdx, -1);
+                                    EmvItem item(EmvItem::TYPE_ERROR_TB1, currByte, "", startBitIdx, -1);
                                     mEmvItems.append(item);
                                     state = STATE_DONE;
+                                    error = true;
                                 }
                             }
                             else if (state == STATE_ATR_TC1)
@@ -367,9 +391,13 @@ void UiEmvAnalyzer::analyze()
                                 state = STATE_DONE; // TODO implement further
                             }
 
-                            if (state != STATE_DONE)
+                            if (error == false)
                             {
-                                EmvItem item(EmvItem::TYPE_CHARACTER_FRAME, currByte, startBitIdx, pos);
+                                EmvItem item(EmvItem::TYPE_CHARACTER_FRAME,
+                                             currByte,
+                                             stateLabel(stateForByte),
+                                             startBitIdx,
+                                             pos);
                                 mEmvItems.append(item);
                                 startBitIdx = -1;
                                 bitRank = 0;
@@ -379,7 +407,7 @@ void UiEmvAnalyzer::analyze()
                         else
                         {
                             state = STATE_DONE;
-                            EmvItem item(EmvItem::TYPE_ERROR_PARITY, 0, startBitIdx, -1);
+                            EmvItem item(EmvItem::TYPE_ERROR_PARITY, 0, "", startBitIdx, -1);
                             mEmvItems.append(item);
                         }
                     }
@@ -551,7 +579,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
         fromIdx = item.startIdx;
         toIdx = item.stopIdx;
 
-        typeAndValueAsString(item.type, item.itemValue, ioShortTxt,
+        typeAndValueAsString(item.type, item.itemValue, item.label, ioShortTxt,
                              ioLongTxt);
 
         int shortTextWidth = painter.fontMetrics().width(ioShortTxt);
@@ -671,6 +699,7 @@ int UiEmvAnalyzer::calcMinimumWidth()
 */
 void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
                                          int value,
+                                         QString label,
                                          QString &shortTxt,
                                          QString &longTxt)
 {
@@ -679,7 +708,10 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
     switch(type) {
     case EmvItem::TYPE_CHARACTER_FRAME:
         shortTxt = formatValue(mFormat, value);
-        longTxt = formatValue(mFormat, value);
+        if (label.length() > 0)
+            longTxt = QString("%1: %2").arg(label).arg(formatValue(mFormat, value));
+        else
+            longTxt = formatValue(mFormat, value);
         break;
     case EmvItem::TYPE_ERROR_RATE:
         shortTxt = "ERR";

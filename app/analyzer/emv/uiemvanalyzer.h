@@ -52,9 +52,10 @@ public:
     }
 
     /*! Constructs a new container */
-    EmvItem(ItemType type, int itemValue, int startIdx, int stopIdx) {
+    EmvItem(ItemType type, int itemValue, QString label, int startIdx, int stopIdx) {
         this->type = type;
         this->itemValue = itemValue;
+        this->label = label;
         this->startIdx = startIdx;
         this->stopIdx = stopIdx;
     }
@@ -63,6 +64,8 @@ public:
     ItemType type;
     /*! item value */
     int itemValue;
+    /*! item label */
+    QString label;
     /*! item start index */
     int startIdx;
     /*! item stop index */
@@ -141,6 +144,7 @@ private:
 
     void typeAndValueAsString(EmvItem::ItemType type,
                                  int value,
+                                 QString label,
                                  QString &shortTxt,
                                  QString &longTxt);
 
