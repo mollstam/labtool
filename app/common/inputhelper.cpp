@@ -397,3 +397,27 @@ QComboBox* InputHelper::createEmvLogicConventionBox(QWidget* parent, Types::EmvL
 
     return box;
 }
+
+/*!
+    Create an input box for specifying EMV protocol.
+*/
+QComboBox* InputHelper::createEmvProtocolBox(QWidget* parent, Types::EmvProtocol protocol)
+{
+    // Deallocation: "Qt Object trees" (See UiMainWindow)
+    QComboBox* box = new QComboBox(parent);
+
+    box->addItem("Auto (from ATR)", QVariant(Types::EmvProtocol_Auto));
+    box->addItem("Character Protocol T=0", QVariant(Types::EmvProtocol_T0));
+    box->addItem("Block Protocol T=1", QVariant(Types::EmvProtocol_T1));
+
+
+    for (int i = 0; i < box->count(); i++) {
+
+        if (box->itemData(i).toInt() == protocol) {
+            box->setCurrentIndex(i);
+        }
+    }
+
+
+    return box;
+}

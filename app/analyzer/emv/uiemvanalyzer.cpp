@@ -24,6 +24,18 @@
 #include "capture/cursormanager.h"
 #include "device/devicemanager.h"
 
+namespace
+{
+    enum AnalyzerState {
+        STATE_ATR_TS,
+        STATE_ATR_T0,
+        STATE_ATR_TB1,
+        STATE_ATR_TC1,
+
+        STATE_DONE,
+    };
+}
+
 /*!
     Counter used when creating the editable name.
 */
@@ -59,6 +71,7 @@ UiEmvAnalyzer::UiEmvAnalyzer(QWidget *parent) :
     mInitialEtu = 0;
     mCurrentEtu = mInitialEtu;
     mLogicConvention = Types::EmvLogicConvention_Auto;
+    mProtocol = Types::EmvProtocol_Auto;
     mFormat = Types::DataFormatHex;
 
     mIdLbl->setText("EMV");
@@ -140,6 +153,18 @@ void UiEmvAnalyzer::setClkFreq(int freq)
 */
 
 /*!
+    \fn void UiEmvAnalyzer::setProtocol(Types::EmvProtocol protocol)
+
+    Set the protocol to \a protocol.
+*/
+
+/*!
+    \fn Types::EmvProtocol UiEmvAnalyzer::protocol() const
+
+    Returns the protocol.
+*/
+
+/*!
     \fn void UiEmvAnalyzer::setDataFormat(Types::DataFormat format)
 
     Set the data format to \a format.
@@ -175,9 +200,41 @@ void UiEmvAnalyzer::analyze()
     mCurrentEtu = mInitialEtu;
     int minSampleRate = 1 + (1.f / (mInitialEtu * 0.2));
 
-    bool done = false;
+    quint8 numHistoricalBytes = 0x00;
+    quint8 extraTermToICCGuardTime = 0; // in etus
+    quint8 ICCToTermGuardTime = 0; // in etus
+
+    AnalyzerState state = STATE_ATR_TS;
+    if (mLogicConvention == Types::EmvLogicConvention_Auto)
+    {
+        mProtocol = Types::EmvProtocol_Auto;
+    }
+    else
+    {
+        if (mProtocol == Types::EmvProtocol_Auto)
+            state = STATE_ATR_T0;
+        else
+            state = STATE_ATR_TB1;
+    }
+
+    Types::EmvLogicConvention determinedLogicConvention = mLogicConvention;
+    Types::EmvProtocol determinedProtocol = mProtocol;
+
+    if (determinedProtocol == Types::EmvProtocol_T0)
+    {
+        ICCToTermGuardTime = 12;
+    }
+    if (determinedProtocol == Types::EmvProtocol_T1)
+    {
+        // T=1 not currently supported
+        EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, 0, -1);
+        mEmvItems.append(item);
+        state = STATE_DONE;
+    }
+
     int pos = 0;
     int startBitIdx = -1;
+    int nextStartBitPos = 0;
     int bitRank = 0;
 
     quint8 currByte = 0x00;
@@ -185,12 +242,12 @@ void UiEmvAnalyzer::analyze()
 
     if (device->usedSampleRate() < minSampleRate)
     {
-        done = true;
+        state = STATE_DONE;
         EmvItem item(EmvItem::TYPE_ERROR_RATE, 0, startBitIdx, -1);
         mEmvItems.append(item);
     }
 
-    while (!done) {
+    while (state != STATE_DONE) {
 
         // reached end of data
         if (pos >= ioData->size()) break;
@@ -198,14 +255,14 @@ void UiEmvAnalyzer::analyze()
 
         if (rstData->at(pos) == 1)
         {
-
             currIo = ioData->at(pos);
 
             if (startBitIdx == -1)
             {
-                if (currIo == 0)
+                if (pos >= nextStartBitPos && currIo == 0)
                 {
                     startBitIdx = pos;
+                    nextStartBitPos = pos + (ICCToTermGuardTime * mCurrentEtu * device->usedSampleRate());
                     bitRank = 1;
                 }
             }
@@ -217,7 +274,7 @@ void UiEmvAnalyzer::analyze()
                 {
                     if (bitRank >= 1 && bitRank <= 8)
                     {
-                        if (mLogicConvention == Types::EmvLogicConvention_InverseConvention)
+                        if (determinedLogicConvention == Types::EmvLogicConvention_InverseConvention)
                         {
                             int bitToWrite = currIo == 0 ? 1 : 0; // low = logic one
                             currByte = currByte | (bitToWrite << (8 - bitRank)); // msb first
@@ -239,26 +296,78 @@ void UiEmvAnalyzer::analyze()
                         }
                         if (numSetBits % 2 == 0)
                         {
-                            if (mLogicConvention == Types::EmvLogicConvention_Auto)
+                            // a valid byte has been read
+
+                            if (state == STATE_ATR_TS)
                             {
                                 if (currByte == 0x3) // 0x3f (inverse indicator) has value 0x3 if read as direct
                                 {
                                     currByte = 0x3f;
-                                    mLogicConvention = Types::EmvLogicConvention_InverseConvention;
+                                    determinedLogicConvention = Types::EmvLogicConvention_InverseConvention;
+                                    state = STATE_ATR_T0;
                                 }
                                 else if (currByte == 0x3b)
                                 {
-                                    mLogicConvention = Types::EmvLogicConvention_DirectConvention;
+                                    determinedLogicConvention = Types::EmvLogicConvention_DirectConvention;
+                                    state = STATE_ATR_T0;
                                 }
                                 else
                                 {
-                                    done = true;
                                     EmvItem item(EmvItem::TYPE_ERROR_TS, 0, startBitIdx, -1);
                                     mEmvItems.append(item);
+                                    state = STATE_DONE;
                                 }
                             }
+                            else if (state == STATE_ATR_T0)
+                            {
+                                if ((currByte >> 4) == 0x6)
+                                {
+                                    determinedProtocol = Types::EmvProtocol_T0;
+                                    numHistoricalBytes = currByte & 0xf;
+                                    ICCToTermGuardTime = 12;
+                                    state = STATE_ATR_TB1;
+                                }
+                                else if ((currByte >> 4) == 0xe)
+                                {
+                                    // T=1 not currently supported
+                                    EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, startBitIdx, -1);
+                                    mEmvItems.append(item);
+                                    state = STATE_DONE;
+                                }
+                                else
+                                {
+                                    EmvItem item(EmvItem::TYPE_ERROR_T0, currByte, startBitIdx, -1);
+                                    mEmvItems.append(item);
+                                    state = STATE_DONE;
+                                }
+                            }
+                            else if (state == STATE_ATR_TB1)
+                            {
+                                if (currByte == 0x00)
+                                {
+                                    if (determinedProtocol == Types::EmvProtocol_T0)
+                                    {
+                                        state = STATE_ATR_TC1;
+                                    }
+                                    else
+                                    {
+                                        state = STATE_DONE;
+                                    }
+                                }
+                                else
+                                {
+                                    EmvItem item(EmvItem::TYPE_ERROR_TB1, currByte, startBitIdx, -1);
+                                    mEmvItems.append(item);
+                                    state = STATE_DONE;
+                                }
+                            }
+                            else if (state == STATE_ATR_TC1)
+                            {
+                                extraTermToICCGuardTime = currByte;
+                                state = STATE_DONE; // TODO implement further
+                            }
 
-                            if (!done)
+                            if (state != STATE_DONE)
                             {
                                 EmvItem item(EmvItem::TYPE_CHARACTER_FRAME, currByte, startBitIdx, pos);
                                 mEmvItems.append(item);
@@ -269,7 +378,7 @@ void UiEmvAnalyzer::analyze()
                         }
                         else
                         {
-                            done = true;
+                            state = STATE_DONE;
                             EmvItem item(EmvItem::TYPE_ERROR_PARITY, 0, startBitIdx, -1);
                             mEmvItems.append(item);
                         }
@@ -582,7 +691,19 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
         break;
     case EmvItem::TYPE_ERROR_TS:
         shortTxt = "ERR";
-        longTxt = "Bad initial character, unknown logic convention";
+        longTxt = QString("Invalid T1 character %1, unknown logic convention").arg(formatValue(Types::DataFormatHex, value));
+        break;
+    case EmvItem::TYPE_ERROR_T0:
+        shortTxt = "ERR";
+        longTxt = QString("Invalid T0 character %1").arg(formatValue(Types::DataFormatHex, value));
+        break;
+    case EmvItem::TYPE_ERROR_PROTOCOL:
+        shortTxt = "ERR";
+        longTxt = QString("Indicated protocol not supported");
+        break;
+    case EmvItem::TYPE_ERROR_TB1:
+        shortTxt = "ERR";
+        longTxt = QString("Invalid TB1 character %1, expected 0x00").arg(formatValue(Types::DataFormatHex, value));
         break;
     }
 

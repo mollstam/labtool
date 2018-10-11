@@ -50,6 +50,7 @@ public:
 
     static QLineEdit* createEmvClkFreqBox(QWidget* parent, int selectedFreq);
     static QComboBox* createEmvLogicConventionBox(QWidget* parent, Types::EmvLogicConvention convention);
+    static QComboBox* createEmvProtocolBox(QWidget* parent, Types::EmvProtocol protocol);
 
 private:
     explicit InputHelper();

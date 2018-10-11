@@ -41,6 +41,9 @@ public:
         TYPE_ERROR_RATE,
         TYPE_ERROR_PARITY,
         TYPE_ERROR_TS,
+        TYPE_ERROR_T0,
+        TYPE_ERROR_PROTOCOL,
+        TYPE_ERROR_TB1,
     };
 
     // default constructor needed in order to add this to QVector
@@ -87,6 +90,9 @@ public:
     void setLogicConvention(Types::EmvLogicConvention convention) { mLogicConvention = convention; }
     Types::EmvLogicConvention logicConvention() const {return mLogicConvention;}
 
+    void setProtocol(Types::EmvProtocol protocol) { mProtocol = protocol; }
+    Types::EmvProtocol protocol() const {return mProtocol;}
+
     void setDataFormat(Types::DataFormat format) {mFormat = format;}
     Types::DataFormat dataFormat() const {return mFormat;}
 
@@ -114,9 +120,10 @@ private:
     int mIoSignalId;
     int mRstSignalId;
     int mClkFreq;
-    Types::EmvLogicConvention mLogicConvention;
     double mInitialEtu;
     double mCurrentEtu;
+    Types::EmvLogicConvention mLogicConvention;
+    Types::EmvProtocol mProtocol;
 
     Types::DataFormat mFormat;
 

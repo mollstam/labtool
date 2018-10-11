@@ -40,6 +40,9 @@ public:
     void setLogicConvention(Types::EmvLogicConvention convention);
     Types::EmvLogicConvention logicConvention();
 
+    void setProtocol(Types::EmvProtocol protocol);
+    Types::EmvProtocol protocol();
+
     Types::DataFormat dataFormat();
     void setDataFormat(Types::DataFormat format);
 
@@ -56,6 +59,7 @@ private:
     QComboBox* mEmvRstSignalBox;
     QLineEdit* mEmvClkFreqBox;
     QComboBox* mEmvLogicConventionBox;
+    QComboBox* mEmvProtocolBox;
     QComboBox* mFormatBox;
 
 };

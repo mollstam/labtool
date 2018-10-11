@@ -59,6 +59,9 @@ UiEmvAnalyzerConfig::UiEmvAnalyzerConfig(QWidget *parent) :
     mEmvLogicConventionBox = InputHelper::createEmvLogicConventionBox(this, Types::EmvLogicConvention_Auto);
     formLayout->addRow(tr("Logic convention: "), mEmvLogicConventionBox);
 
+    mEmvProtocolBox = InputHelper::createEmvProtocolBox(this, Types::EmvProtocol_Auto);
+    formLayout->addRow(tr("Protocol: "), mEmvProtocolBox);
+
     // Deallocation: Ownership changed when calling setLayout
     QVBoxLayout* verticalLayout = new QVBoxLayout();
 
@@ -141,6 +144,23 @@ Types::EmvLogicConvention UiEmvAnalyzerConfig::logicConvention()
 {
     int f = InputHelper::intValue(mEmvLogicConventionBox);
     return (Types::EmvLogicConvention)f;
+}
+
+/*!
+    Set the protocol.
+*/
+void UiEmvAnalyzerConfig::setProtocol(Types::EmvProtocol protocol)
+{
+    InputHelper::setInt(mEmvProtocolBox, (int)protocol);
+}
+
+/*!
+    Returns the protocol.
+*/
+Types::EmvProtocol UiEmvAnalyzerConfig::protocol()
+{
+    int f = InputHelper::intValue(mEmvProtocolBox);
+    return (Types::EmvProtocol)f;
 }
 
 /*!

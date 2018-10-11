@@ -79,6 +79,13 @@ public:
         EmvLogicConvention_Num // must be last
     };
 
+    enum EmvProtocol {
+        EmvProtocol_Auto, // determine from ATR
+        EmvProtocol_T0, // T=0 (Character protocol)
+        EmvProtocol_T1, // T=1 (Block protocol)
+        EmvProtocol_Num // must be last
+    };
+
     Types();
 };
 

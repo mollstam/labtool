@@ -122,8 +122,21 @@
 
     \var Types::EmvLogicConvention Types::EmvLogicConvention_DirectConvention
     Direct convention where high level (1) is logic one. LSB first.
+*/
 
+/*!
+    \enum Types::EmvProtocol
 
+    This enum describes different EMV protocols.
+
+    \var Types::EmvProtocol Types::EmvProtocol_Auto
+    Determine automatically. Expects IO capture to contain ATR T0
+
+    \var Types::EmvProtocol Types::EmvProtocol_T0
+    Character Protocol T=0
+
+    \var Types::EmvProtocol Types::EmvProtocol_T1
+    Block Protocol T=1
 */
 
 
