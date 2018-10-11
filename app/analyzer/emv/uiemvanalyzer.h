@@ -126,7 +126,9 @@ private:
     double mInitialEtu;
     double mCurrentEtu;
     Types::EmvLogicConvention mLogicConvention;
+    Types::EmvLogicConvention mDeterminedLogicConvention; // may not be auto
     Types::EmvProtocol mProtocol;
+    Types::EmvProtocol mDeterminedProtocol; // may to be auto
 
     Types::DataFormat mFormat;
 
@@ -150,6 +152,8 @@ private:
 
     void paintSignal(QPainter* painter, double from, double to,
                      int h, QString &shortTxt, QString &longTxt);
+
+    void paintBinary(QPainter* painter, double from, double to, int value);
 };
 
 #endif // UIEMVANALYZER_H

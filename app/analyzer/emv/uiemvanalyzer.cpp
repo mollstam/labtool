@@ -109,7 +109,7 @@ UiEmvAnalyzer::UiEmvAnalyzer(QWidget *parent) :
     mRstLbl->setPalette(palette);
     mClkLbl->setPalette(palette);
 
-    setFixedHeight(60);
+    setFixedHeight(100);
 }
 
 /*!
@@ -236,14 +236,14 @@ void UiEmvAnalyzer::analyze()
             state = STATE_ATR_TB1;
     }
 
-    Types::EmvLogicConvention determinedLogicConvention = mLogicConvention;
-    Types::EmvProtocol determinedProtocol = mProtocol;
+    mDeterminedLogicConvention = mLogicConvention;
+    mDeterminedProtocol = mProtocol;
 
-    if (determinedProtocol == Types::EmvProtocol_T0)
+    if (mDeterminedProtocol == Types::EmvProtocol_T0)
     {
         ICCToTermGuardTime = 12;
     }
-    if (determinedProtocol == Types::EmvProtocol_T1)
+    if (mDeterminedProtocol == Types::EmvProtocol_T1)
     {
         // T=1 not currently supported
         EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, "", 0, -1);
@@ -293,7 +293,7 @@ void UiEmvAnalyzer::analyze()
                 {
                     if (bitRank >= 1 && bitRank <= 8)
                     {
-                        if (determinedLogicConvention == Types::EmvLogicConvention_InverseConvention)
+                        if (mDeterminedLogicConvention == Types::EmvLogicConvention_InverseConvention)
                         {
                             int bitToWrite = currIo == 0 ? 1 : 0; // low = logic one
                             currByte = currByte | (bitToWrite << (8 - bitRank)); // msb first
@@ -325,12 +325,12 @@ void UiEmvAnalyzer::analyze()
                                 if (currByte == 0x3) // 0x3f (inverse indicator) has value 0x3 if read as direct
                                 {
                                     currByte = 0x3f;
-                                    determinedLogicConvention = Types::EmvLogicConvention_InverseConvention;
+                                    mDeterminedLogicConvention = Types::EmvLogicConvention_InverseConvention;
                                     state = STATE_ATR_T0;
                                 }
                                 else if (currByte == 0x3b)
                                 {
-                                    determinedLogicConvention = Types::EmvLogicConvention_DirectConvention;
+                                    mDeterminedLogicConvention = Types::EmvLogicConvention_DirectConvention;
                                     state = STATE_ATR_T0;
                                 }
                                 else
@@ -345,7 +345,7 @@ void UiEmvAnalyzer::analyze()
                             {
                                 if ((currByte >> 4) == 0x6)
                                 {
-                                    determinedProtocol = Types::EmvProtocol_T0;
+                                    mDeterminedProtocol = Types::EmvProtocol_T0;
                                     numHistoricalBytes = currByte & 0xf;
                                     ICCToTermGuardTime = 12;
                                     state = STATE_ATR_TB1;
@@ -370,7 +370,7 @@ void UiEmvAnalyzer::analyze()
                             {
                                 if (currByte == 0x00)
                                 {
-                                    if (determinedProtocol == Types::EmvProtocol_T0)
+                                    if (mDeterminedProtocol == Types::EmvProtocol_T0)
                                     {
                                         state = STATE_ATR_TC1;
                                     }
@@ -557,7 +557,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
     int fromIdx = 0;
     int toIdx = 0;
 
-    int h = height() / 6;
+    int h = 10;
 
     QString ioShortTxt;
     QString ioLongTxt;
@@ -566,7 +566,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
         QPen pen = painter.pen();
         pen.setColor(Qt::gray);
         painter.setPen(pen);
-        QRectF ioRect(plotX()+4, height()/4-h, 100, 2*h);
+        QRectF ioRect(plotX()+4, 5, 100, 2*h);
         painter.drawText(ioRect, Qt::AlignLeft|Qt::AlignVCenter, "I/O");
     }
 
@@ -624,9 +624,16 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
             }
         }
 
+        if (item.type == EmvItem::TYPE_CHARACTER_FRAME)
+        {
+            painter.save();
+            painter.translate(0, 10);
+            paintBinary(&painter, from, to, item.itemValue);
+            painter.restore();
+        }
 
         painter.save();
-        painter.translate(0, height()/4);
+        painter.translate(0, 28);
         paintSignal(&painter, from, to, h, ioShortTxt, ioLongTxt);
         painter.restore();
 
@@ -753,7 +760,8 @@ void UiEmvAnalyzer::paintSignal(QPainter* painter, double from, double to,
     int shortTextWidth = painter->fontMetrics().width(shortTxt);
     int longTextWidth = painter->fontMetrics().width(longTxt);
 
-    if (to-from > 4) {
+    if (to-from > 4)
+    {
         painter->drawLine(from, 0, from+2, -h);
         painter->drawLine(from, 0, from+2, h);
 
@@ -763,9 +771,8 @@ void UiEmvAnalyzer::paintSignal(QPainter* painter, double from, double to,
         painter->drawLine(to, 0, to-2, -h);
         painter->drawLine(to, 0, to-2, h);
     }
-
-    // drawing a vertical line when the allowed width is too small
-    else {
+    else // drawing a vertical line when the allowed width is too small
+    {
         painter->drawLine(from, -h, from, h);
     }
 
@@ -779,3 +786,34 @@ void UiEmvAnalyzer::paintSignal(QPainter* painter, double from, double to,
     }
 
 }
+
+/*!
+    Paint character byte as binary.
+*/
+void UiEmvAnalyzer::paintBinary(QPainter* painter, double from, double to, int value)
+{
+    double widthPerBit = (to-from) / 10;
+    if (widthPerBit > 8)
+    {
+        QPen pen = painter->pen();
+        pen.setColor(QColor(255, 255, 0));
+        painter->setPen(pen);
+
+        for (int bitIndex = 0; bitIndex < 8; ++bitIndex)
+        {
+            double bitFrom = from + (widthPerBit * (bitIndex + 1));
+            QRectF textRect(bitFrom, -10, widthPerBit, 20);
+            bool bitValue = false;
+            if (mDeterminedLogicConvention == Types::EmvLogicConvention_InverseConvention)
+            { // msb first
+                bitValue = (value >> (7 - bitIndex)) & 1;
+            }
+            else if (mDeterminedLogicConvention == Types::EmvLogicConvention_DirectConvention)
+            { // lsb first
+                bitValue = (value >> bitIndex) & 1;
+            }
+            painter->drawText(textRect, Qt::AlignCenter, bitValue ? "1" : "0");
+        }
+    }
+}
+
