@@ -152,8 +152,9 @@ private:
 
     void paintSignal(QPainter* painter, double from, double to,
                      int h, QString &shortTxt, QString &longTxt);
-
     void paintBinary(QPainter* painter, double from, double to, int value);
+    void paintByteInterval(QPainter* painter, double from, double to, int interval);
+
 };
 
 #endif // UIEMVANALYZER_H

@@ -575,6 +575,9 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
     pen.setColor(Configuration::instance().analyzerColor());
     painter.setPen(pen);
 
+    int prevCharacterFromIdx = -1;
+    double prevCharacterFrom = -1;
+
     for (int i = 0; i < mEmvItems.size(); i++) {
         EmvItem item = mEmvItems.at(i);
 
@@ -630,6 +633,16 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
             painter.translate(0, 10);
             paintBinary(&painter, from, to, item.itemValue);
             painter.restore();
+
+            if (prevCharacterFromIdx > 0)
+            {
+                painter.save();
+                painter.translate(0, 45);
+                paintByteInterval(&painter, prevCharacterFrom, from, fromIdx - prevCharacterFromIdx);
+                painter.restore();
+            }
+            prevCharacterFromIdx = fromIdx;
+            prevCharacterFrom = from;
         }
 
         painter.save();
@@ -816,4 +829,33 @@ void UiEmvAnalyzer::paintBinary(QPainter* painter, double from, double to, int v
         }
     }
 }
+
+/*!
+    Paint interval between start bits.
+*/
+void UiEmvAnalyzer::paintByteInterval(QPainter* painter, double from, double to, int interval)
+{
+    if (to-from > 4)
+    {
+        QPen pen = painter->pen();
+        pen.setColor(QColor(0, 255, 255));
+        painter->setPen(pen);
+
+        painter->drawLine(from+2, -2, from+2, 2);
+        painter->drawLine(to-2, -2, to-2, 2);
+        painter->drawLine(from+2, 0, to-2, 0);
+
+        QFont font = painter->font();
+        font.setPixelSize(9);
+        painter->setFont(font);
+
+        CaptureDevice* device = DeviceManager::instance().activeDevice()
+                ->captureDevice();
+        double etus = (double)interval / device->usedSampleRate() / mCurrentEtu;
+        QRectF textRect(from+3, 3, (to-from), 12);
+        QString text = QString("%1 ETU").arg(etus, 0, 'f', 1);
+        painter->drawText(textRect, Qt::AlignLeft, text);
+    }
+}
+
 
