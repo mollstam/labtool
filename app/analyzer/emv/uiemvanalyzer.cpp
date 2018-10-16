@@ -268,6 +268,9 @@ void UiEmvAnalyzer::analyze()
     int bitRank = 0;
 
     quint8 currByte = 0x00;
+    EmvCommandMessage currCommand;
+    int currCommandStartBitIdx = -1;
+    quint8 currCommandRemainingData;
     int currIo = ioData->at(pos);
 
     if (device->usedSampleRate() < minSampleRate)
@@ -416,7 +419,77 @@ void UiEmvAnalyzer::analyze()
                             }
                             else if (state == STATE_COMMAND_CLA)
                             {
+                                currCommand = EmvCommandMessage();
+                                currCommandStartBitIdx = startBitIdx;
+                                currCommand.Cla = currByte;
+                                state = STATE_COMMAND_INS;
+                            }
+                            else if (state == STATE_COMMAND_INS)
+                            {
+                                currCommand.Ins = currByte;
+                                state = STATE_COMMAND_P1;
+                            }
+                            else if (state == STATE_COMMAND_P1)
+                            {
+                                currCommand.P1 = currByte;
+                                state = STATE_COMMAND_P2;
+                            }
+                            else if (state == STATE_COMMAND_P2)
+                            {
+                                currCommand.P2 = currByte;
+                                state = STATE_COMMAND_LC;
+                            }
+                            else if (state == STATE_COMMAND_LC)
+                            {
+                                currCommand.Lc = currByte;
+                                if (currCommand.Lc > 0)
+                                {
+                                    currCommand.Data = (quint8*)malloc(currCommand.Lc);
+                                    currCommandRemainingData = currCommand.Lc;
+                                    state = STATE_COMMAND_DATA;
+                                }
+                                else
+                                {
+                                    currCommand.Data = NULL;
+                                    currCommandRemainingData = 0;
+                                    state = STATE_COMMAND_LE;
+                                }
+                            }
+                            else if (state == STATE_COMMAND_DATA)
+                            {
+                                memcpy(&currCommand.Data[currCommand.Lc - currCommandRemainingData], &currByte, 1);
+                                currCommandRemainingData--;
+                                if (currCommandRemainingData == 0)
+                                {
+                                    state = STATE_COMMAND_LE;
+                                }
+                            }
+                            else if (state == STATE_COMMAND_LE)
+                            {
+                                currCommand.Le = currByte;
 
+                                if (currCommand.Cla == 0x00 && currCommand.Ins == 0xa4)
+                                {
+                                    currCommand.Label = "SELECT";
+                                }
+                                else if (currCommand.Cla == 0x00 && currCommand.Ins == 0xb2)
+                                {
+                                    currCommand.Label = "READ RECORD";
+                                }
+                                else
+                                {
+                                    currCommand.Label = "UNKNOWN";
+                                }
+
+                                EmvItem item = EmvItem::Create(EmvItem::TYPE_COMMAND_MESSAGE,
+                                                               currCommand,
+                                                               "Command Message",
+                                                               currCommandStartBitIdx,
+                                                               pos + (mCurrentEtu * device->usedSampleRate()));
+                                mEmvItems.append(item);
+                                currCommand = EmvCommandMessage();
+
+                                state = STATE_RAW_BYTES; // TODO go back to command CLA or read response
                             }
 
                             if (error == false)
@@ -620,7 +693,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
         from = mTimeAxis->timeToPixelRelativeRef((double)fromIdx/sampleRate);
 
         // no need to draw when signal is out of plot area
-        if (from > width()) break;
+        if (from > width()) continue;
 
         if (toIdx != -1) {
             to = mTimeAxis->timeToPixelRelativeRef((double)toIdx/sampleRate);
@@ -653,6 +726,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
             }
         }
 
+        bool shouldPaintSignal = true;
         if (item.type == EmvItem::TYPE_CHARACTER_FRAME)
         {
             painter.save();
@@ -670,11 +744,23 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
             prevCharacterFromIdx = fromIdx;
             prevCharacterFrom = from;
         }
+        else if (item.type == EmvItem::TYPE_COMMAND_MESSAGE)
+        {
+            shouldPaintSignal = false;
 
-        painter.save();
-        painter.translate(0, 28);
-        paintSignal(&painter, from, to, h, ioShortTxt, ioLongTxt);
-        painter.restore();
+            painter.save();
+            painter.translate(0, 75);
+            paintCommandMessage(&painter, from, to, item.get<EmvCommandMessage>());
+            painter.restore();
+        }
+
+        if (shouldPaintSignal)
+        {
+            painter.save();
+            painter.translate(0, 28);
+            paintSignal(&painter, from, to, h, ioShortTxt, ioLongTxt);
+            painter.restore();
+        }
 
     }
 
@@ -903,5 +989,56 @@ void UiEmvAnalyzer::paintByteInterval(QPainter* painter, double from, double to,
         painter->drawText(textRect, Qt::AlignLeft, text);
     }
 }
+
+/*!
+    Paint command message.
+*/
+void UiEmvAnalyzer::paintCommandMessage(QPainter* painter, double from, double to, EmvCommandMessage message)
+{
+    int h = 12;
+    if (to-from > 4)
+    {
+        painter->drawLine(from, 0, from+2, -h);
+        painter->drawLine(from, 0, from+2, h);
+
+        painter->drawLine(from+2, -h, to-2, -h);
+        painter->drawLine(from+2, h, to-2, h);
+
+        painter->drawLine(to, 0, to-2, -h);
+        painter->drawLine(to, 0, to-2, h);
+
+        if (to-from > 100)
+        {
+            QRectF textRect(from+5, -h+3, (to-from-10), h*2-6);
+            QString dataHex = "";
+            QString dataAscii = "";
+            for (int i = 0; i < message.Lc; ++i)
+            {
+                if (dataHex.length() > 0)
+                {
+                    dataHex += " ";
+                }
+                dataHex += formatValue(Types::DataFormatHex, message.Data[i]);
+                QChar c(message.Data[i]);
+                if (c.isPrint())
+                    dataAscii += c;
+                else
+                    dataAscii += ".";
+            }
+            QString text = QString("%1   --   CLA: %2  INS: %3  P1: %4  P2: %5   --   Data (%6): %7 (%8)   --   Le: %9")
+                    .arg(message.Label)
+                    .arg(formatValue(Types::DataFormatHex, message.Cla))
+                    .arg(formatValue(Types::DataFormatHex, message.Ins))
+                    .arg(message.P1)
+                    .arg(message.P2)
+                    .arg(message.Lc)
+                    .arg(dataHex)
+                    .arg(dataAscii)
+                    .arg(message.Le);
+            painter->drawText(textRect, Qt::AlignLeft, text);
+        }
+    }
+}
+
 
 

@@ -21,6 +21,53 @@
 #include "analyzer/uianalyzer.h"
 #include "capture/uicursor.h"
 
+struct EmvCommandMessage
+{
+    quint8 Cla;
+    quint8 Ins;
+    quint8 P1;
+    quint8 P2;
+    quint8 Lc;
+    quint8* Data;
+    quint8 Le;
+
+    const char* Label;
+
+    EmvCommandMessage()
+        : Cla(0), Ins(0), P1(0), P2(0), Lc(0), Data(NULL), Le(0), Label(NULL)
+    {
+    }
+
+    ~EmvCommandMessage()
+    {
+        if (Data != NULL)
+        {
+            free(Data);
+            Data = NULL;
+        }
+    }
+
+    EmvCommandMessage(const EmvCommandMessage& other)
+    {
+        this->Cla = other.Cla;
+        this->Ins = other.Ins;
+        this->P1 = other.P1;
+        this->P2 = other.P2;
+        this->Lc = other.Lc;
+        if (this->Lc > 0)
+        {
+            this->Data = (quint8*)malloc(this->Lc);
+            memcpy(this->Data, other.Data, this->Lc);
+        }
+        else
+        {
+            this->Data = NULL;
+        }
+        this->Le = other.Le;
+        this->Label = other.Label;
+    }
+};
+
 /*!
     \class EmvItem
     \brief Container class for EMV items.
@@ -38,6 +85,8 @@ public:
     */
     enum ItemType {
         TYPE_CHARACTER_FRAME,
+        TYPE_COMMAND_MESSAGE,
+
         TYPE_ERROR_RATE,
         TYPE_ERROR_PARITY,
         TYPE_ERROR_TS,
@@ -211,6 +260,7 @@ private:
                      int h, QString &shortTxt, QString &longTxt);
     void paintBinary(QPainter* painter, double from, double to, int value);
     void paintByteInterval(QPainter* painter, double from, double to, int interval);
+    void paintCommandMessage(QPainter* painter, double from, double to, EmvCommandMessage message);
 
 };
 
