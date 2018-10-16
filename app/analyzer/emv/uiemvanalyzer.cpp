@@ -31,6 +31,7 @@ namespace
         STATE_ATR_T0,
         STATE_ATR_TB1,
         STATE_ATR_TC1,
+        STATE_ATR_HISTORICAL_BYTES,
 
         STATE_RAW_BYTES,
 
@@ -49,6 +50,8 @@ namespace
             return "TB1";
         case STATE_ATR_TC1:
             return "TC1";
+        case STATE_ATR_HISTORICAL_BYTES:
+            return "Historical Byte";
         default:
             return "";
         }
@@ -390,7 +393,15 @@ void UiEmvAnalyzer::analyze()
                             else if (state == STATE_ATR_TC1)
                             {
                                 extraTermToICCGuardTime = currByte;
-                                state = STATE_RAW_BYTES; // TODO implement further
+                                state = STATE_ATR_HISTORICAL_BYTES;
+                            }
+                            else if (state == STATE_ATR_HISTORICAL_BYTES)
+                            {
+                                numHistoricalBytes--;
+                                if (numHistoricalBytes == 0)
+                                {
+                                    state = STATE_RAW_BYTES; // TODO implement further
+                                }
                             }
 
                             if (error == false)
