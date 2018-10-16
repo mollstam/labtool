@@ -46,24 +46,81 @@ public:
         TYPE_ERROR_TB1,
     };
 
+    template<typename T>
+    static EmvItem Create(ItemType type, T& value, QString label, int startIdx, int stopIdx)
+    {
+        return EmvItem(type, &value, sizeof(value), label, startIdx, stopIdx);
+    }
+
     // default constructor needed in order to add this to QVector
     /*! Default constructor */
     EmvItem() {
+        this->itemValueSize = 0;
+        this->itemValue = NULL;
     }
 
-    /*! Constructs a new container */
-    EmvItem(ItemType type, int itemValue, QString label, int startIdx, int stopIdx) {
+    EmvItem(ItemType type, int value, QString label, int startIdx, int stopIdx)
+    {
         this->type = type;
-        this->itemValue = itemValue;
+        this->itemValueSize = sizeof(value);
+        this->itemValue = malloc(this->itemValueSize);
+        memcpy(this->itemValue, &value, this->itemValueSize);
         this->label = label;
         this->startIdx = startIdx;
         this->stopIdx = stopIdx;
     }
 
+    /*! Constructs a new container */
+    EmvItem(ItemType type, void* itemValuePtr, size_t itemValueSize, QString label, int startIdx, int stopIdx) {
+        this->type = type;
+        this->itemValueSize = itemValueSize;
+        this->itemValue = malloc(itemValueSize);
+        memcpy(this->itemValue, itemValuePtr, itemValueSize);
+        this->label = label;
+        this->startIdx = startIdx;
+        this->stopIdx = stopIdx;
+    }
+
+    ~EmvItem()
+    {
+        if (this->itemValue)
+        {
+            free(this->itemValue);
+            this->itemValueSize = 0;
+            this->itemValue = NULL;
+        }
+    }
+
+    EmvItem(const EmvItem& other)
+    {
+        this->type = other.type;
+        if (other.itemValue != NULL)
+        {
+            this->itemValueSize = other.itemValueSize;
+            this->itemValue = malloc(other.itemValueSize);
+            memcpy(this->itemValue, other.itemValue, other.itemValueSize);
+        }
+        else
+        {
+            this->itemValue = NULL;
+            this->itemValueSize = 0;
+        }
+        this->label = other.label;
+        this->startIdx = other.startIdx;
+        this->stopIdx = other.stopIdx;
+    }
+
+    template<typename T>
+    T get() const
+    {
+        return *(T*)itemValue;
+    }
+
     /*! type */
     ItemType type;
     /*! item value */
-    int itemValue;
+    void* itemValue;
+    size_t itemValueSize;
     /*! item label */
     QString label;
     /*! item start index */
@@ -145,7 +202,7 @@ private:
     int calcMinimumWidth();
 
     void typeAndValueAsString(EmvItem::ItemType type,
-                                 int value,
+                                 void* valuePtr,
                                  QString label,
                                  QString &shortTxt,
                                  QString &longTxt);

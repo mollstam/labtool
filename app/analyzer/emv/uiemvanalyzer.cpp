@@ -33,6 +33,14 @@ namespace
         STATE_ATR_TC1,
         STATE_ATR_HISTORICAL_BYTES,
 
+        STATE_COMMAND_CLA,
+        STATE_COMMAND_INS,
+        STATE_COMMAND_P1,
+        STATE_COMMAND_P2,
+        STATE_COMMAND_LC,
+        STATE_COMMAND_DATA,
+        STATE_COMMAND_LE,
+
         STATE_RAW_BYTES,
 
         STATE_DONE,
@@ -393,15 +401,22 @@ void UiEmvAnalyzer::analyze()
                             else if (state == STATE_ATR_TC1)
                             {
                                 extraTermToICCGuardTime = currByte;
-                                state = STATE_ATR_HISTORICAL_BYTES;
+                                if (numHistoricalBytes > 0)
+                                    state = STATE_ATR_HISTORICAL_BYTES;
+                                else
+                                    state = STATE_COMMAND_CLA;
                             }
                             else if (state == STATE_ATR_HISTORICAL_BYTES)
                             {
                                 numHistoricalBytes--;
                                 if (numHistoricalBytes == 0)
                                 {
-                                    state = STATE_RAW_BYTES; // TODO implement further
+                                    state = STATE_COMMAND_CLA;
                                 }
+                            }
+                            else if (state == STATE_COMMAND_CLA)
+                            {
+
                             }
 
                             if (error == false)
@@ -642,7 +657,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
         {
             painter.save();
             painter.translate(0, 10);
-            paintBinary(&painter, from, to, item.itemValue);
+            paintBinary(&painter, from, to, item.get<int>());
             painter.restore();
 
             if (prevCharacterFromIdx > 0)
@@ -731,7 +746,7 @@ int UiEmvAnalyzer::calcMinimumWidth()
     and long representation is returned in \a shortTxt and \a longTxt.
 */
 void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
-                                         int value,
+                                         void* valuePtr,
                                          QString label,
                                          QString &shortTxt,
                                          QString &longTxt)
@@ -740,12 +755,17 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
 
     switch(type) {
     case EmvItem::TYPE_CHARACTER_FRAME:
+    {
+        int value = 0;
+        if (valuePtr != NULL)
+            value = *(int*)valuePtr;
         shortTxt = formatValue(mFormat, value);
         if (label.length() > 0)
             longTxt = QString("%1: %2").arg(label).arg(formatValue(mFormat, value));
         else
             longTxt = formatValue(mFormat, value);
         break;
+    }
     case EmvItem::TYPE_ERROR_RATE:
         shortTxt = "ERR";
         longTxt = "Too low sample rate";
@@ -755,21 +775,36 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
         longTxt = "Bad parity bit";
         break;
     case EmvItem::TYPE_ERROR_TS:
+    {
+        int value = 0;
+        if (valuePtr != NULL)
+            value = *(int*)valuePtr;
         shortTxt = "ERR";
         longTxt = QString("Invalid T1 character %1, unknown logic convention").arg(formatValue(Types::DataFormatHex, value));
         break;
+    }
     case EmvItem::TYPE_ERROR_T0:
+    {
+        int value = 0;
+        if (valuePtr != NULL)
+            value = *(int*)valuePtr;
         shortTxt = "ERR";
         longTxt = QString("Invalid T0 character %1").arg(formatValue(Types::DataFormatHex, value));
         break;
+    }
     case EmvItem::TYPE_ERROR_PROTOCOL:
         shortTxt = "ERR";
         longTxt = QString("Indicated protocol not supported");
         break;
     case EmvItem::TYPE_ERROR_TB1:
+    {
+        int value = 0;
+        if (valuePtr != NULL)
+            value = *(int*)valuePtr;
         shortTxt = "ERR";
         longTxt = QString("Invalid TB1 character %1, expected 0x00").arg(formatValue(Types::DataFormatHex, value));
         break;
+    }
     }
 
 }
