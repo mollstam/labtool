@@ -32,9 +32,10 @@ struct EmvCommandMessage
     quint8 Le;
 
     const char* Label;
+    quint8 Case;
 
     EmvCommandMessage()
-        : Cla(0), Ins(0), P1(0), P2(0), Lc(0), Data(NULL), Le(0), Label(NULL)
+        : Cla(0), Ins(0), P1(0), P2(0), Lc(0), Data(NULL), Le(0), Label(NULL), Case(0)
     {
     }
 
@@ -65,6 +66,7 @@ struct EmvCommandMessage
         }
         this->Le = other.Le;
         this->Label = other.Label;
+        this->Case = other.Case;
     }
 };
 
@@ -96,9 +98,9 @@ public:
     };
 
     template<typename T>
-    static EmvItem Create(ItemType type, T& value, QString label, int startIdx, int stopIdx)
+    static EmvItem Create(ItemType type, T& value, QString label, int startIdx, int stopIdx, bool fromTtl)
     {
-        return EmvItem(type, &value, sizeof(value), label, startIdx, stopIdx);
+        return EmvItem(type, &value, sizeof(value), label, startIdx, stopIdx, fromTtl);
     }
 
     // default constructor needed in order to add this to QVector
@@ -106,9 +108,10 @@ public:
     EmvItem() {
         this->itemValueSize = 0;
         this->itemValue = NULL;
+        this->fromTtl = true;
     }
 
-    EmvItem(ItemType type, int value, QString label, int startIdx, int stopIdx)
+    EmvItem(ItemType type, int value, QString label, int startIdx, int stopIdx, bool fromTtl)
     {
         this->type = type;
         this->itemValueSize = sizeof(value);
@@ -117,10 +120,11 @@ public:
         this->label = label;
         this->startIdx = startIdx;
         this->stopIdx = stopIdx;
+        this->fromTtl = fromTtl;
     }
 
     /*! Constructs a new container */
-    EmvItem(ItemType type, void* itemValuePtr, size_t itemValueSize, QString label, int startIdx, int stopIdx) {
+    EmvItem(ItemType type, void* itemValuePtr, size_t itemValueSize, QString label, int startIdx, int stopIdx, bool fromTtl) {
         this->type = type;
         this->itemValueSize = itemValueSize;
         this->itemValue = malloc(itemValueSize);
@@ -128,6 +132,7 @@ public:
         this->label = label;
         this->startIdx = startIdx;
         this->stopIdx = stopIdx;
+        this->fromTtl = fromTtl;
     }
 
     ~EmvItem()
@@ -157,6 +162,7 @@ public:
         this->label = other.label;
         this->startIdx = other.startIdx;
         this->stopIdx = other.stopIdx;
+        this->fromTtl = other.fromTtl;
     }
 
     template<typename T>
@@ -176,6 +182,8 @@ public:
     int startIdx;
     /*! item stop index */
     int stopIdx;
+    /*! if true from the TTL to ICC, otherwise from ICC to TTL */
+    bool fromTtl;
 };
 
 class UiEmvAnalyzer : public UiAnalyzer
