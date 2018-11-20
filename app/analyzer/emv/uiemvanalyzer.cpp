@@ -37,9 +37,14 @@ namespace
         STATE_COMMAND_INS,
         STATE_COMMAND_P1,
         STATE_COMMAND_P2,
-        STATE_COMMAND_LC,
+        STATE_COMMAND_P3,
         STATE_COMMAND_DATA,
-        STATE_COMMAND_LE,
+        //STATE_COMMAND_LE,
+
+        STATE_RESPONSE_STATUS,
+        STATE_RESPONSE_INS,
+        STATE_RESPONSE_C0,
+        STATE_RESPONSE_DATA,
 
         STATE_RAW_BYTES,
 
@@ -120,7 +125,7 @@ UiEmvAnalyzer::UiEmvAnalyzer(QWidget *parent) :
     mRstLbl->setPalette(palette);
     mClkLbl->setPalette(palette);
 
-    setFixedHeight(100);
+    setFixedHeight(110);
 }
 
 /*!
@@ -250,6 +255,8 @@ void UiEmvAnalyzer::analyze()
     mDeterminedLogicConvention = mLogicConvention;
     mDeterminedProtocol = mProtocol;
 
+    EmvItem::DataDirection dataDirection = EmvItem::ICC_TO_TTL;
+
     if (mDeterminedProtocol == Types::EmvProtocol_T0)
     {
         ICCToTermGuardTime = 12;
@@ -257,27 +264,31 @@ void UiEmvAnalyzer::analyze()
     if (mDeterminedProtocol == Types::EmvProtocol_T1)
     {
         // T=1 not currently supported
-        EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, "", 0, -1, true);
+        EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, "", 0, -1, dataDirection);
         mEmvItems.append(item);
         state = STATE_DONE;
     }
 
     int pos = 0;
+    int lastStartBitIdx = -1;
     int startBitIdx = -1;
     int nextStartBitPos = 0;
     int bitRank = 0;
 
+    bool expectDirectionSwitch = false;
+
     quint8 currByte = 0x00;
     EmvCommandMessage currCommand;
+    bool commandDone = false;
     int currCommandStartBitIdx = -1;
-    quint8 currCommandCase = 0;
     quint8 currCommandRemainingData;
+    quint8 currCommandRemainingResponseData;
     int currIo = ioData->at(pos);
 
     if (device->usedSampleRate() < minSampleRate)
     {
         state = STATE_DONE;
-        EmvItem item(EmvItem::TYPE_ERROR_RATE, 0, "", startBitIdx, -1, true);
+        EmvItem item(EmvItem::TYPE_ERROR_RATE, 0, "", startBitIdx, -1, dataDirection);
         mEmvItems.append(item);
     }
 
@@ -286,6 +297,7 @@ void UiEmvAnalyzer::analyze()
         // reached end of data
         if (pos >= ioData->size()) break;
         if (pos >= rstData->size()) break;
+        const EmvItem::DataDirection currDataDirection = dataDirection;
 
         if (rstData->at(pos) == 1)
         {
@@ -298,6 +310,18 @@ void UiEmvAnalyzer::analyze()
                     startBitIdx = pos;
                     nextStartBitPos = pos + (ICCToTermGuardTime * mCurrentEtu * device->usedSampleRate());
                     bitRank = 1;
+
+                    if (expectDirectionSwitch)
+                    {
+                        int directionSwitchGuardTime = 16 * mCurrentEtu * device->usedSampleRate(); // T=0 specific
+                        if (lastStartBitIdx != -1 && startBitIdx - lastStartBitIdx < directionSwitchGuardTime)
+                        {
+                            state = STATE_DONE;
+                            EmvItem item(EmvItem::TYPE_ERROR_DIRECTION_GUARD_TIME, 0, "", startBitIdx, -1, currDataDirection);
+                            mEmvItems.append(item);
+                        }
+                    }
+                    expectDirectionSwitch = false;
                 }
             }
             else
@@ -350,7 +374,7 @@ void UiEmvAnalyzer::analyze()
                                 }
                                 else
                                 {
-                                    EmvItem item(EmvItem::TYPE_ERROR_TS, 0, "", startBitIdx, -1, true);
+                                    EmvItem item(EmvItem::TYPE_ERROR_TS, 0, "", startBitIdx, -1, currDataDirection);
                                     mEmvItems.append(item);
                                     state = STATE_DONE;
                                     error = true;
@@ -368,14 +392,14 @@ void UiEmvAnalyzer::analyze()
                                 else if ((currByte >> 4) == 0xe)
                                 {
                                     // T=1 not currently supported
-                                    EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, "", startBitIdx, -1, true);
+                                    EmvItem item(EmvItem::TYPE_ERROR_PROTOCOL, 0, "", startBitIdx, -1, currDataDirection);
                                     mEmvItems.append(item);
                                     state = STATE_DONE;
                                     error = true;
                                 }
                                 else
                                 {
-                                    EmvItem item(EmvItem::TYPE_ERROR_T0, currByte, "", startBitIdx, -1, true);
+                                    EmvItem item(EmvItem::TYPE_ERROR_T0, currByte, "", startBitIdx, -1, currDataDirection);
                                     mEmvItems.append(item);
                                     state = STATE_DONE;
                                     error = true;
@@ -396,7 +420,7 @@ void UiEmvAnalyzer::analyze()
                                 }
                                 else
                                 {
-                                    EmvItem item(EmvItem::TYPE_ERROR_TB1, currByte, "", startBitIdx, -1, true);
+                                    EmvItem item(EmvItem::TYPE_ERROR_TB1, currByte, "", startBitIdx, -1, currDataDirection);
                                     mEmvItems.append(item);
                                     state = STATE_DONE;
                                     error = true;
@@ -406,9 +430,14 @@ void UiEmvAnalyzer::analyze()
                             {
                                 extraTermToICCGuardTime = currByte;
                                 if (numHistoricalBytes > 0)
+                                {
                                     state = STATE_ATR_HISTORICAL_BYTES;
+                                }
                                 else
+                                {
                                     state = STATE_COMMAND_CLA;
+                                    dataDirection = EmvItem::TTL_TO_ICC;
+                                }
                             }
                             else if (state == STATE_ATR_HISTORICAL_BYTES)
                             {
@@ -416,59 +445,243 @@ void UiEmvAnalyzer::analyze()
                                 if (numHistoricalBytes == 0)
                                 {
                                     state = STATE_COMMAND_CLA;
+                                    dataDirection = EmvItem::TTL_TO_ICC;
                                 }
                             }
                             else if (state == STATE_COMMAND_CLA)
                             {
-                                currCommand = EmvCommandMessage();
-                                currCommandStartBitIdx = startBitIdx;
-                                currCommand.Cla = currByte;
+                                if (currCommand.Case == 0)
+                                {
+                                    currCommand = EmvCommandMessage();
+                                    currCommandStartBitIdx = startBitIdx;
+                                }
+                                if (currCommand.Case == 4)
+                                {
+                                    if (currByte != 0x00)
+                                    {
+                                        EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                        mEmvItems.append(item);
+                                        state = STATE_DONE;
+                                        error = true;
+                                    }
+                                }
+                                else
+                                {
+                                    currCommand.Cla = currByte;
+                                }
                                 state = STATE_COMMAND_INS;
                             }
                             else if (state == STATE_COMMAND_INS)
                             {
-                                currCommand.Ins = currByte;
+                                if (currCommand.Case == 4)
+                                {
+                                    if (currByte != 0xc0)
+                                    {
+                                        EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                        mEmvItems.append(item);
+                                        state = STATE_DONE;
+                                        error = true;
+                                    }
+                                }
+                                else
+                                {
+                                    currCommand.Ins = currByte;
+                                }
                                 state = STATE_COMMAND_P1;
                             }
                             else if (state == STATE_COMMAND_P1)
                             {
-                                currCommand.P1 = currByte;
+                                if (currCommand.Case == 4)
+                                {
+                                    if (currByte != 0x00)
+                                    {
+                                        EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                        mEmvItems.append(item);
+                                        state = STATE_DONE;
+                                        error = true;
+                                    }
+                                }
+                                else
+                                {
+                                    currCommand.P1 = currByte;
+                                }
                                 state = STATE_COMMAND_P2;
                             }
                             else if (state == STATE_COMMAND_P2)
                             {
-                                currCommand.P2 = currByte;
-                                state = STATE_COMMAND_LC;
-                            }
-                            else if (state == STATE_COMMAND_LC)
-                            {
-                                currCommand.Lc = currByte;
-                                if (currCommand.Lc == 0)
+                                if (currCommand.Case == 4)
                                 {
-                                    currCommand.Data = NULL;
-                                    currCommandRemainingData = 0;
-                                    state = STATE_COMMAND_LE;
+                                    if (currByte != 0x00)
+                                    {
+                                        EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                        mEmvItems.append(item);
+                                        state = STATE_DONE;
+                                        error = true;
+                                    }
                                 }
                                 else
                                 {
-                                    currCommand.Data = (quint8*)malloc(currCommand.Lc);
-                                    currCommandRemainingData = currCommand.Lc;
+                                    currCommand.P2 = currByte;
+                                }
+                                state = STATE_COMMAND_P3;
+                            }
+                            else if (state == STATE_COMMAND_P3)
+                            {
+                                if (currCommand.Case == 4)
+                                {
+                                    if (currByte != currCommand.Licc)
+                                    {
+                                        EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                        mEmvItems.append(item);
+                                        state = STATE_DONE;
+                                        error = true;
+                                    }
+                                    else
+                                    {
+                                        state = STATE_RESPONSE_C0;
+                                    }
+                                }
+                                else
+                                {
+                                    currCommand.P3 = currByte;
+                                    if (currCommand.P3 > 0)
+                                    {
+                                        currCommand.Data = (quint8*)malloc(currCommand.P3);
+                                        currCommandRemainingData = currCommand.P3;
+                                    }
+
+                                    if (currCommand.Case == 2)
+                                    {
+                                        if (currCommand.P3 != currCommand.Licc)
+                                        {
+                                            EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                            mEmvItems.append(item);
+                                            state = STATE_DONE;
+                                            error = true;
+                                        }
+                                        else
+                                        {
+                                            state = STATE_RESPONSE_INS;
+                                        }
+                                    }
+                                    else if (currCommand.P3 == 0)
+                                    {
+                                        currCommand.Data = NULL;
+                                        currCommandRemainingData = 0;
+                                        state = STATE_RESPONSE_STATUS;
+                                    }
+                                    else
+                                    {
+                                        state = STATE_RESPONSE_INS;
+                                    }
+                                }
+
+                                dataDirection = EmvItem::ICC_TO_TTL;
+                            }
+                            else if (state == STATE_RESPONSE_STATUS)
+                            {
+                                if (currCommand.Sw1 == 0xff)
+                                {
+                                    currCommand.Sw1 = currByte;
+                                }
+                                else if (currCommand.Sw2 == 0xff)
+                                {
+                                    currCommand.Sw2 = currByte;
+                                    if (currCommand.Sw1 == 0x90
+                                        && currCommand.Sw2 == 0x00)
+                                    {
+                                        if (currCommand.Case == 0 && currCommand.P3 == 0)
+                                            currCommand.Case = 1;
+                                        else if (currCommand.Case == 0 && currCommand.P3 != 0)
+                                            currCommand.Case = 3;
+                                        commandDone = true;
+                                    }
+                                    else if (currCommand.Sw1 == 0x6c)
+                                    {
+                                        currCommand.Case = 2;
+                                        currCommand.Licc = currCommand.Sw2;
+                                        currCommand.ResponseData = (quint8*)malloc(currCommand.Licc);
+                                        currCommandRemainingResponseData = currCommand.Licc;
+                                        currCommand.Sw1 = 0xff;
+                                        currCommand.Sw2 = 0xff;
+                                        state = STATE_COMMAND_CLA;
+                                    }
+                                    else if (currCommand.Sw1 == 0x61)
+                                    {
+                                        currCommand.Case = 4;
+                                        currCommand.Licc = currCommand.Sw2;
+                                        currCommand.ResponseData = (quint8*)malloc(currCommand.Licc);
+                                        currCommandRemainingResponseData = currCommand.Licc;
+                                        currCommand.Sw1 = 0xff;
+                                        currCommand.Sw2 = 0xff;
+                                        state = STATE_COMMAND_CLA;
+                                    }
+
+                                    dataDirection = EmvItem::TTL_TO_ICC;
+                                }
+                                else
+                                {
+                                    EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                    mEmvItems.append(item);
+                                    state = STATE_DONE;
+                                    error = true;
+                                }
+                            }
+                            else if (state == STATE_RESPONSE_INS)
+                            {
+                                if (currByte != currCommand.Ins)
+                                {
+                                    EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                    mEmvItems.append(item);
+                                    state = STATE_DONE;
+                                    error = true;
+                                }
+                                else if (currCommand.Case == 2)
+                                {
+                                    state = STATE_RESPONSE_DATA;
+                                }
+                                else
+                                {
                                     state = STATE_COMMAND_DATA;
+                                    dataDirection = EmvItem::TTL_TO_ICC;
+                                }
+                            }
+                            else if (state == STATE_RESPONSE_C0)
+                            {
+                                if (currByte != 0xc0)
+                                {
+                                    EmvItem item(EmvItem::TYPE_ERROR_GENERIC, currByte, "", startBitIdx, -1, currDataDirection);
+                                    mEmvItems.append(item);
+                                    state = STATE_DONE;
+                                    error = true;
+                                }
+                                else
+                                {
+                                    state = STATE_RESPONSE_DATA;
+                                }
+                            }
+                            else if (state == STATE_RESPONSE_DATA)
+                            {
+                                memcpy(&currCommand.ResponseData[currCommand.Licc - currCommandRemainingData], &currByte, 1);
+                                currCommandRemainingResponseData--;
+                                if (currCommandRemainingResponseData == 0)
+                                {
+                                    state = STATE_RESPONSE_STATUS;
                                 }
                             }
                             else if (state == STATE_COMMAND_DATA)
                             {
-                                memcpy(&currCommand.Data[currCommand.Lc - currCommandRemainingData], &currByte, 1);
+                                memcpy(&currCommand.Data[currCommand.P3 - currCommandRemainingData], &currByte, 1);
                                 currCommandRemainingData--;
                                 if (currCommandRemainingData == 0)
                                 {
-                                    state = STATE_COMMAND_LE;
+                                    state = STATE_RESPONSE_STATUS;
+                                    dataDirection = EmvItem::ICC_TO_TTL;
                                 }
                             }
-                            else if (state == STATE_COMMAND_LE)
-                            {
-                                currCommand.Le = currByte;
 
+                            if (commandDone)
+                            {
                                 if (currCommand.Cla == 0x00 && currCommand.Ins == 0xa4)
                                 {
                                     currCommand.Label = "SELECT";
@@ -487,11 +700,13 @@ void UiEmvAnalyzer::analyze()
                                                                "Command Message",
                                                                currCommandStartBitIdx,
                                                                pos + (mCurrentEtu * device->usedSampleRate()),
-                                                               true);
+                                                               currDataDirection);
                                 mEmvItems.append(item);
                                 currCommand = EmvCommandMessage();
+                                dataDirection = EmvItem::TTL_TO_ICC;
+                                commandDone = false;
 
-                                state = STATE_RAW_BYTES; // TODO go back to command CLA or read response
+                                state = STATE_COMMAND_CLA;
                             }
 
                             if (error == false)
@@ -501,8 +716,9 @@ void UiEmvAnalyzer::analyze()
                                              stateLabel(stateForByte),
                                              startBitIdx,
                                              pos + (mCurrentEtu * device->usedSampleRate()),
-                                             true);
+                                             currDataDirection);
                                 mEmvItems.append(item);
+                                lastStartBitIdx = startBitIdx;
                                 startBitIdx = -1;
                                 bitRank = 0;
                                 currByte = 0x00;
@@ -511,12 +727,17 @@ void UiEmvAnalyzer::analyze()
                         else
                         {
                             state = STATE_DONE;
-                            EmvItem item(EmvItem::TYPE_ERROR_PARITY, 0, "", startBitIdx, -1, true);
+                            EmvItem item(EmvItem::TYPE_ERROR_PARITY, 0, "", startBitIdx, -1, currDataDirection);
                             mEmvItems.append(item);
                         }
                     }
                 }
             }
+        }
+
+        if (dataDirection != currDataDirection)
+        {
+            expectDirectionSwitch = true;
         }
 
         pos++;
@@ -733,14 +954,14 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
         if (item.type == EmvItem::TYPE_CHARACTER_FRAME)
         {
             painter.save();
-            painter.translate(0, 10);
+            painter.translate(0, 5);
             paintBinary(&painter, from, to, item.get<int>());
             painter.restore();
 
             if (prevCharacterFromIdx > 0)
             {
                 painter.save();
-                painter.translate(0, 45);
+                painter.translate(0, 25);
                 paintByteInterval(&painter, prevCharacterFrom, from, fromIdx - prevCharacterFromIdx);
                 painter.restore();
             }
@@ -752,7 +973,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
             shouldPaintSignal = false;
 
             painter.save();
-            painter.translate(0, 75);
+            painter.translate(0, 87);
             paintCommandMessage(&painter, from, to, item.get<EmvCommandMessage>());
             painter.restore();
         }
@@ -760,8 +981,8 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
         if (shouldPaintSignal)
         {
             painter.save();
-            painter.translate(0, 28);
-            paintSignal(&painter, from, to, h, ioShortTxt, ioLongTxt);
+            painter.translate(0, 40);
+            paintSignal(&painter, from, to, h, ioShortTxt, ioLongTxt, item.dataDirection);
             painter.restore();
         }
 
@@ -799,7 +1020,7 @@ void UiEmvAnalyzer::doLayout()
 
     mIdLbl->move(r.left(), y);
 
-    int x = mIdLbl->pos().x()+mIdLbl->width() + SignalIdMarginRight;
+    int x = mIdLbl->pos().x()+mIdLbl->width() + 10;
     mNameLbl->move(x, y);
     mEditName->move(x, y);
 
@@ -855,6 +1076,12 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
             longTxt = formatValue(mFormat, value);
         break;
     }
+    case EmvItem::TYPE_ERROR_GENERIC:
+    {
+        shortTxt = "ERR";
+        longTxt = "Generic error";
+        break;
+    }
     case EmvItem::TYPE_ERROR_RATE:
         shortTxt = "ERR";
         longTxt = "Too low sample rate";
@@ -894,6 +1121,12 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
         longTxt = QString("Invalid TB1 character %1, expected 0x00").arg(formatValue(Types::DataFormatHex, value));
         break;
     }
+    case EmvItem::TYPE_ERROR_DIRECTION_GUARD_TIME:
+    {
+        shortTxt = "ERR";
+        longTxt = "Expected direction change but minimum guard time have not yet passed";
+        break;
+    }
     }
 
 }
@@ -902,11 +1135,15 @@ void UiEmvAnalyzer::typeAndValueAsString(EmvItem::ItemType type,
     Paint signal data.
 */
 void UiEmvAnalyzer::paintSignal(QPainter* painter, double from, double to,
-                                int h, QString &shortTxt, QString &longTxt)
+                                int h, QString &shortTxt, QString &longTxt, EmvItem::DataDirection dataDirection)
 {
 
     int shortTextWidth = painter->fontMetrics().width(shortTxt);
     int longTextWidth = painter->fontMetrics().width(longTxt);
+
+    painter->save();
+    int yOffset = dataDirection == EmvItem::TTL_TO_ICC ? 0 : 15;
+    painter->translate(0, yOffset);
 
     if (to-from > 4)
     {
@@ -933,6 +1170,7 @@ void UiEmvAnalyzer::paintSignal(QPainter* painter, double from, double to,
         painter->drawText(textRect, Qt::AlignCenter, shortTxt);
     }
 
+    painter->restore();
 }
 
 /*!
@@ -972,11 +1210,18 @@ void UiEmvAnalyzer::paintByteInterval(QPainter* painter, double from, double to,
 {
     if (to-from > 4)
     {
+        QColor color(0, 255, 255);
+        CaptureDevice* device = DeviceManager::instance().activeDevice()
+                ->captureDevice();
+        double etus = (double)interval / device->usedSampleRate() / mCurrentEtu;
+        if (etus < 16.0) // T=0 specific
         {
-            QPen pen = painter->pen();
-            pen.setColor(QColor(0, 255, 255));
-            painter->setPen(pen);
+            color = QColor(100, 180, 180);
         }
+
+        QPen pen = painter->pen();
+        pen.setColor(color);
+        painter->setPen(pen);
 
         painter->drawLine(from+2, -2, from+2, 2);
         painter->drawLine(to-2, -2, to-2, 2);
@@ -986,24 +1231,7 @@ void UiEmvAnalyzer::paintByteInterval(QPainter* painter, double from, double to,
         font.setPixelSize(9);
         painter->setFont(font);
 
-        CaptureDevice* device = DeviceManager::instance().activeDevice()
-                ->captureDevice();
-        double etus = (double)interval / device->usedSampleRate() / mCurrentEtu;
-
-        {
-            // If interval between bytes is not above the threshold of changing direction we dim it
-            QPen pen = painter->pen();
-            if (etus >= 16.f)  // FIXME this is T=0 specific
-            {
-                pen.setColor(QColor(0, 255, 255));
-            }
-            else
-            {
-                pen.setColor(QColor(140, 140, 140));
-            }
-            painter->setPen(pen);
-        }
-        QRectF textRect(from+3, 3, (to-from), 12);
+        QRectF textRect(from+3, -12, (to-from), 12);
         QString text = QString("%1 ETU").arg(etus, 0, 'f', 1);
         painter->drawText(textRect, Qt::AlignLeft, text);
     }
@@ -1014,7 +1242,7 @@ void UiEmvAnalyzer::paintByteInterval(QPainter* painter, double from, double to,
 */
 void UiEmvAnalyzer::paintCommandMessage(QPainter* painter, double from, double to, EmvCommandMessage message)
 {
-    int h = 12;
+    int h = 18;
     if (to-from > 4)
     {
         painter->drawLine(from, 0, from+2, -h);
@@ -1031,7 +1259,7 @@ void UiEmvAnalyzer::paintCommandMessage(QPainter* painter, double from, double t
             QRectF textRect(from+5, -h+3, (to-from-10), h*2-6);
             QString dataHex = "";
             QString dataAscii = "";
-            for (int i = 0; i < message.Lc; ++i)
+            for (int i = 0; i < message.P3; ++i)
             {
                 if (dataHex.length() > 0)
                 {
@@ -1044,16 +1272,16 @@ void UiEmvAnalyzer::paintCommandMessage(QPainter* painter, double from, double t
                 else
                     dataAscii += ".";
             }
-            QString text = QString("%1   --   CLA: %2  INS: %3  P1: %4  P2: %5   --   Data (%6): %7 (%8)   --   Le: %9")
+            QString text = QString("%1 (Case %9)   --   CLA: %2  INS: %3  P1: %4  P2: %5  P3: %6\nCommand Data: %7 (%8)")
                     .arg(message.Label)
                     .arg(formatValue(Types::DataFormatHex, message.Cla))
                     .arg(formatValue(Types::DataFormatHex, message.Ins))
                     .arg(message.P1)
                     .arg(message.P2)
-                    .arg(message.Lc)
+                    .arg(message.P3)
                     .arg(dataHex)
                     .arg(dataAscii)
-                    .arg(message.Le);
+                    .arg(message.Case);
             painter->drawText(textRect, Qt::AlignLeft, text);
         }
     }
