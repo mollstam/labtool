@@ -125,7 +125,7 @@ UiEmvAnalyzer::UiEmvAnalyzer(QWidget *parent) :
     mRstLbl->setPalette(palette);
     mClkLbl->setPalette(palette);
 
-    setFixedHeight(110);
+    setFixedHeight(210);
 }
 
 /*!
@@ -605,6 +605,8 @@ void UiEmvAnalyzer::analyze()
                                         currCommand.Sw1 = 0xff;
                                         currCommand.Sw2 = 0xff;
                                         state = STATE_COMMAND_CLA;
+
+                                        currCommand.AddNote(pos, QString("Resend with P3 = %1").arg(currCommand.Sw2));
                                     }
                                     else if (currCommand.Sw1 == 0x61)
                                     {
@@ -615,6 +617,8 @@ void UiEmvAnalyzer::analyze()
                                         currCommand.Sw1 = 0xff;
                                         currCommand.Sw2 = 0xff;
                                         state = STATE_COMMAND_CLA;
+
+                                        currCommand.AddNote(pos, QString("Issue GET RESPONSE with len %1").arg(currCommand.Sw2));
                                     }
 
                                     dataDirection = EmvItem::TTL_TO_ICC;
@@ -974,7 +978,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
 
             painter.save();
             painter.translate(0, 87);
-            paintCommandMessage(&painter, from, to, item.get<EmvCommandMessage>());
+            paintCommandMessage(&painter, from, to, item.getComplex<EmvCommandMessage>());
             painter.restore();
         }
 
@@ -1242,7 +1246,7 @@ void UiEmvAnalyzer::paintByteInterval(QPainter* painter, double from, double to,
 */
 void UiEmvAnalyzer::paintCommandMessage(QPainter* painter, double from, double to, EmvCommandMessage message)
 {
-    int h = 18;
+    int h = 16;
     if (to-from > 4)
     {
         painter->drawLine(from, 0, from+2, -h);
@@ -1256,33 +1260,51 @@ void UiEmvAnalyzer::paintCommandMessage(QPainter* painter, double from, double t
 
         if (to-from > 100)
         {
-            QRectF textRect(from+5, -h+3, (to-from-10), h*2-6);
-            QString dataHex = "";
-            QString dataAscii = "";
-            for (int i = 0; i < message.P3; ++i)
             {
-                if (dataHex.length() > 0)
+                QRectF textRect(from+5, -h+3, (to-from-10), h*2-6);
+                QString dataHex = "";
+                QString dataAscii = "";
+                for (int i = 0; i < message.P3; ++i)
                 {
-                    dataHex += " ";
+                    if (dataHex.length() > 0)
+                    {
+                        dataHex += " ";
+                    }
+                    dataHex += formatValue(Types::DataFormatHex, message.Data[i]);
+                    QChar c(message.Data[i]);
+                    if (c.isPrint())
+                        dataAscii += c;
+                    else
+                        dataAscii += ".";
                 }
-                dataHex += formatValue(Types::DataFormatHex, message.Data[i]);
-                QChar c(message.Data[i]);
-                if (c.isPrint())
-                    dataAscii += c;
-                else
-                    dataAscii += ".";
+                QString text = QString("%1 (Case %9)   --   CLA: %2  INS: %3  P1: %4  P2: %5  P3: %6\nCommand Data: %7 (%8)")
+                        .arg(message.Label)
+                        .arg(formatValue(Types::DataFormatHex, message.Cla))
+                        .arg(formatValue(Types::DataFormatHex, message.Ins))
+                        .arg(message.P1)
+                        .arg(message.P2)
+                        .arg(message.P3)
+                        .arg(dataHex)
+                        .arg(dataAscii)
+                        .arg(message.Case);
+                painter->drawText(textRect, Qt::AlignLeft, text);
             }
-            QString text = QString("%1 (Case %9)   --   CLA: %2  INS: %3  P1: %4  P2: %5  P3: %6\nCommand Data: %7 (%8)")
-                    .arg(message.Label)
-                    .arg(formatValue(Types::DataFormatHex, message.Cla))
-                    .arg(formatValue(Types::DataFormatHex, message.Ins))
-                    .arg(message.P1)
-                    .arg(message.P2)
-                    .arg(message.P3)
-                    .arg(dataHex)
-                    .arg(dataAscii)
-                    .arg(message.Case);
-            painter->drawText(textRect, Qt::AlignLeft, text);
+
+            QPen pen = painter->pen();
+            pen.setColor(QColor(255, 255, 0));
+            painter->setPen(pen);
+            CaptureDevice* device = DeviceManager::instance().activeDevice()
+                    ->captureDevice();
+            int sampleRate = device->usedSampleRate();
+            for (int i = 0; i < message.NoteCount; ++i)
+            {
+                double notePos = mTimeAxis->timeToPixelRelativeRef((double)message.NoteKey[i]/sampleRate);
+                int w = 500;
+                QRectF textRect(notePos-w-3, -h+3, w, h*2-6);
+
+                painter->drawLine(notePos, -h-4, notePos, h);
+                painter->drawText(textRect, Qt::AlignRight | Qt::TextWordWrap, message.NoteValue[i]);
+            }
         }
     }
 }

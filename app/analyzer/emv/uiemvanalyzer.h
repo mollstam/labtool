@@ -21,6 +21,8 @@
 #include "analyzer/uianalyzer.h"
 #include "capture/uicursor.h"
 
+#define MAX_NOTES 64
+
 struct EmvCommandMessage
 {
     quint8 Cla;
@@ -29,15 +31,18 @@ struct EmvCommandMessage
     quint8 P2;
     quint8 P3;
     quint8* Data;
-    //quint8 Le;
 
     quint8 Sw1;
     quint8 Sw2;
 
-    const char* Label;
+    QString Label;
     quint8 Case;
     quint8 Licc;
     quint8* ResponseData;
+
+    int NoteCount;
+    int NoteKey[MAX_NOTES];
+    QString NoteValue[MAX_NOTES];
 
     EmvCommandMessage()
         : Cla(0)
@@ -46,13 +51,12 @@ struct EmvCommandMessage
         , P2(0)
         , P3(0)
         , Data(NULL)
-        //, Le(0)
         , Sw1(0xff)
         , Sw2(0xff)
-        , Label(NULL)
         , Case(0)
         , Licc(0)
         , ResponseData(NULL)
+        , NoteCount(0)
     {
     }
 
@@ -86,7 +90,6 @@ struct EmvCommandMessage
         {
             this->Data = NULL;
         }
-        //this->Le = other.Le;
         this->Label = other.Label;
         this->Sw1 = other.Sw1;
         this->Sw2 = other.Sw2;
@@ -101,6 +104,81 @@ struct EmvCommandMessage
         {
             this->ResponseData = NULL;
         }
+        this->NoteCount = other.NoteCount;
+        memcpy(&this->NoteKey, &other.NoteKey, sizeof(other.NoteKey));
+        memcpy(&this->NoteValue, &other.NoteValue, sizeof(other.NoteValue));
+    }
+
+    void WriteToStream(QDataStream& stream)
+    {
+        stream << Cla;
+        stream << Ins;
+        stream << P1;
+        stream << P2;
+        stream << P3;
+        if (P3 > 0)
+        {
+            stream.writeRawData((const char*)Data, P3);
+        }
+        stream << Label;
+        stream << Sw1;
+        stream << Sw2;
+        stream << Case;
+        stream << Licc;
+        if (Licc > 0)
+        {
+            stream.writeRawData((const char*)ResponseData, Licc);
+        }
+        stream << NoteCount;
+        for (int i = 0; i < NoteCount; ++i)
+        {
+            stream << NoteKey[i];
+            stream << NoteValue[i];
+        }
+    }
+
+    void ReadFromStream(QDataStream& stream)
+    {
+        stream >> Cla;
+        stream >> Ins;
+        stream >> P1;
+        stream >> P2;
+        stream >> P3;
+        if (P3 > 0)
+        {
+            if (Data != 0)
+                free(Data);
+            Data = (quint8*)malloc(P3);
+            stream.readRawData((char*)Data, P3);
+        }
+        stream >> Label;
+        stream >> Sw1;
+        stream >> Sw2;
+        stream >> Case;
+        stream >> Licc;
+        if (Licc > 0)
+        {
+            if (ResponseData != 0)
+                free(ResponseData);
+            ResponseData = (quint8*)malloc(Licc);
+            stream.readRawData((char*)ResponseData, Licc);
+        }
+        stream >> NoteCount;
+        for (int i = 0; i < NoteCount; ++i)
+        {
+            stream >> NoteKey[i];
+            stream >> NoteValue[i];
+        }
+    }
+
+    void AddNote(int pos, QString note)
+    {
+        if (NoteCount >= MAX_NOTES)
+            return;
+
+        NoteKey[NoteCount] = pos;
+        NoteValue[NoteCount] = note;
+        NoteCount += 1;
     }
 };
 
@@ -142,7 +220,10 @@ public:
     template<typename T>
     static EmvItem Create(ItemType type, T& value, QString label, int startIdx, int stopIdx, DataDirection dataDirection)
     {
-        return EmvItem(type, &value, sizeof(value), label, startIdx, stopIdx, dataDirection);
+        QByteArray bytes;
+        QDataStream stream(&bytes, QIODevice::WriteOnly);
+        value.WriteToStream(stream);
+        return EmvItem(type, bytes.data(), bytes.size(), label, startIdx, stopIdx, dataDirection);
     }
 
     // default constructor needed in order to add this to QVector
@@ -211,6 +292,16 @@ public:
     T get() const
     {
         return *(T*)itemValue;
+    }
+
+    template<typename T>
+    T getComplex() const
+    {
+        T t;
+        QByteArray bytes((const char*)itemValue, itemValueSize);
+        QDataStream stream(bytes);
+        t.ReadFromStream(stream);
+        return t;
     }
 
     /*! type */
