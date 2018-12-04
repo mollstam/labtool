@@ -69,6 +69,76 @@ namespace
             return "";
         }
     }
+
+    QString formatValue(Types::DataFormat format, int value)
+    {
+        QLatin1Char fillChar('0');
+        QString s;
+
+        switch(format) {
+        case Types::DataFormatHex:
+            s = QString("0x%1").arg(value, 2, 16, fillChar);
+            break;
+        case Types::DataFormatDecimal:
+            s = QString("%1").number(value, 10);
+            break;
+        case Types::DataFormatAscii:
+            s = QChar(value).toLatin1();
+            break;
+        default:
+            break;
+        }
+
+        return s;
+    }
+
+    void formatCommandData(quint8* data, quint32 len, QString& outString)
+    {
+        const int bytesPerLine = 16;
+        QVector< QVector<quint8> > parts;
+        QVector<quint8> currentPart;
+        for (uint i = 0; i < len; ++i)
+        {
+            if (i > 0 && i % bytesPerLine == 0)
+            {
+                parts.push_back(currentPart);
+                currentPart.clear();
+            }
+            currentPart.push_back(data[i]);
+        }
+        if (!currentPart.empty())
+        {
+            parts.push_back((currentPart));
+        }
+
+        int expectedHexLength = 4 * bytesPerLine + (1 * (bytesPerLine - 1));
+        outString = "";
+        for (int i = 0; i < parts.size(); i++) {
+            const QVector<quint8>& part = parts.at(i);
+            QString lineHex;
+            QString lineAscii;
+            for (int j = 0; j < part.size(); ++j)
+            {
+                if (lineHex.length() > 0)
+                {
+                    lineHex += " ";
+                }
+                lineHex += formatValue(Types::DataFormatHex, part[j]);
+                QChar c(part[j]);
+                if (c.isPrint())
+                    lineAscii += c;
+                else
+                    lineAscii += ".";
+            }
+
+            QString linePadding;
+            if (lineHex.length() < expectedHexLength)
+                linePadding = QString(expectedHexLength - lineHex.length(), ' ');
+            outString += QString("%1%2  |  %3\n").arg(lineHex, linePadding, lineAscii);
+        }
+
+        outString = outString.trimmed();
+    }
 }
 
 /*!
@@ -666,7 +736,8 @@ void UiEmvAnalyzer::analyze()
                             }
                             else if (state == STATE_RESPONSE_DATA)
                             {
-                                memcpy(&currCommand.ResponseData[currCommand.Licc - currCommandRemainingData], &currByte, 1);
+                                quint8 i = currCommand.Licc - currCommandRemainingResponseData;
+                                memcpy(&currCommand.ResponseData[i], &currByte, 1);
                                 currCommandRemainingResponseData--;
                                 if (currCommandRemainingResponseData == 0)
                                 {
@@ -675,7 +746,8 @@ void UiEmvAnalyzer::analyze()
                             }
                             else if (state == STATE_COMMAND_DATA)
                             {
-                                memcpy(&currCommand.Data[currCommand.P3 - currCommandRemainingData], &currByte, 1);
+                                quint8 i = currCommand.P3 - currCommandRemainingData;
+                                memcpy(&currCommand.Data[i], &currByte, 1);
                                 currCommandRemainingData--;
                                 if (currCommandRemainingData == 0)
                                 {
@@ -977,7 +1049,7 @@ void UiEmvAnalyzer::paintEvent(QPaintEvent *event)
             shouldPaintSignal = false;
 
             painter.save();
-            painter.translate(0, 87);
+            painter.translate(0, 103);
             paintCommandMessage(&painter, from, to, item.getComplex<EmvCommandMessage>());
             painter.restore();
         }
@@ -1246,7 +1318,7 @@ void UiEmvAnalyzer::paintByteInterval(QPainter* painter, double from, double to,
 */
 void UiEmvAnalyzer::paintCommandMessage(QPainter* painter, double from, double to, EmvCommandMessage message)
 {
-    int h = 16;
+    int h = 32;
     if (to-from > 4)
     {
         painter->drawLine(from, 0, from+2, -h);
@@ -1261,33 +1333,63 @@ void UiEmvAnalyzer::paintCommandMessage(QPainter* painter, double from, double t
         if (to-from > 100)
         {
             {
-                QRectF textRect(from+5, -h+3, (to-from-10), h*2-6);
-                QString dataHex = "";
-                QString dataAscii = "";
-                for (int i = 0; i < message.P3; ++i)
-                {
-                    if (dataHex.length() > 0)
-                    {
-                        dataHex += " ";
-                    }
-                    dataHex += formatValue(Types::DataFormatHex, message.Data[i]);
-                    QChar c(message.Data[i]);
-                    if (c.isPrint())
-                        dataAscii += c;
-                    else
-                        dataAscii += ".";
-                }
-                QString text = QString("%1 (Case %9)   --   CLA: %2  INS: %3  P1: %4  P2: %5  P3: %6\nCommand Data: %7 (%8)")
+                QFont defaultFont = painter->font();
+                QFont monospaceFont;
+                monospaceFont.setPixelSize(13);
+                monospaceFont.setStyleHint(QFont::Monospace);
+                monospaceFont.setFamily(monospaceFont.defaultFamily());
+
+                int textSectionSpacing = 3;
+                int xMargin = 5;
+                int yMargin = 3;
+                int yOrigin = -h+yMargin;
+                int y = yOrigin;
+                QRectF textRect(from+xMargin, y, (to-from-xMargin*2), h*2-yMargin*2);
+
+                QString textHeader = QString("%1 (Case %2)   --   CLA: %3  INS: %4  P1: %5  P2: %6 P3: %7")
                         .arg(message.Label)
+                        .arg(message.Case)
                         .arg(formatValue(Types::DataFormatHex, message.Cla))
                         .arg(formatValue(Types::DataFormatHex, message.Ins))
                         .arg(message.P1)
                         .arg(message.P2)
-                        .arg(message.P3)
-                        .arg(dataHex)
-                        .arg(dataAscii)
-                        .arg(message.Case);
-                painter->drawText(textRect, Qt::AlignLeft, text);
+                        .arg(message.P3);
+                painter->drawText(textRect, Qt::AlignLeft, textHeader);
+                QRectF boundingRect = painter->boundingRect(textRect, Qt::AlignLeft, textHeader);
+                y += boundingRect.height() + textSectionSpacing;
+
+                if (message.Case == 3 || message.Case == 4)
+                {
+                    QString requestDataString;
+                    formatCommandData(message.Data, message.P3, requestDataString);
+
+                    painter->setFont(monospaceFont);
+                    boundingRect = QRectF(painter->boundingRect(textRect, Qt::AlignLeft, requestDataString));
+                    textRect = QRectF(from+xMargin, y, (to-from-xMargin*2), boundingRect.height());
+                    painter->drawText(textRect, Qt::AlignLeft | Qt::TextDontClip, requestDataString);
+                    y += boundingRect.height() + textSectionSpacing;
+                }
+
+                QString responseStatusString = QString("Response status: %1 %2")
+                        .arg(formatValue(Types::DataFormatHex, message.Sw1))
+                        .arg(formatValue(Types::DataFormatHex, message.Sw2));
+
+                painter->setFont(defaultFont);
+                boundingRect = QRectF(painter->boundingRect(textRect, Qt::AlignLeft, responseStatusString));
+                textRect = QRectF(from+xMargin, y, (to-from-xMargin*2), boundingRect.height());
+                painter->drawText(textRect, Qt::AlignLeft | Qt::TextDontClip, responseStatusString);
+                y += boundingRect.height() + textSectionSpacing;
+
+                QString responseDataString;
+                formatCommandData(message.ResponseData, message.Licc, responseDataString);
+
+                painter->setFont(monospaceFont);
+                boundingRect = QRectF(painter->boundingRect(textRect, Qt::AlignLeft, responseDataString));
+                textRect = QRectF(from+xMargin, y, (to-from-xMargin*2), boundingRect.height());
+                painter->drawText(textRect, Qt::AlignLeft | Qt::TextDontClip, responseDataString);
+                y += boundingRect.height() + textSectionSpacing;
+
+                painter->setFont(defaultFont);
             }
 
             QPen pen = painter->pen();
